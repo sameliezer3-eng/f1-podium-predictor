@@ -1,5 +1,6 @@
 import { createContext, useContext, useEffect, useMemo, useState } from 'react'
 import { usePlayers } from '../hooks/useAppData'
+import { clearActiveSession, setActiveSession } from '../firebase/api'
 
 const STORAGE_KEY = 'paddock-predictor:activePlayerId'
 
@@ -30,7 +31,32 @@ export function PlayerProvider({ children }) {
     [players, activePlayerId],
   )
 
-  const value = { players, playersLoading: loading, activePlayer, activePlayerId, setActivePlayerId }
+  // The "you're verified" signal — call only after passcode verification
+  // succeeds (PasscodeSetup/PasscodeLogin), never directly from picking a
+  // name in the switcher. Also binds this browser's auth uid to the player
+  // in Firestore (see setActiveSession) so isAdmin()/isOwnPlayerDoc() in the
+  // security rules have something real to check — awaited before resolving
+  // so an admin who logs in and immediately opens Admin doesn't hit a
+  // permission error from a write that raced ahead of the session doc.
+  const activatePlayer = async (playerId) => {
+    await setActiveSession(playerId)
+    setActivePlayerId(playerId)
+  }
+
+  const logout = () => {
+    setActivePlayerId(null)
+    clearActiveSession()
+  }
+
+  const value = {
+    players,
+    playersLoading: loading,
+    activePlayer,
+    activePlayerId,
+    setActivePlayerId,
+    activatePlayer,
+    logout,
+  }
 
   return <PlayerContext.Provider value={value}>{children}</PlayerContext.Provider>
 }

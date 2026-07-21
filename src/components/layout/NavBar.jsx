@@ -5,15 +5,18 @@ import Avatar from '../ui/Avatar'
 import Modal from '../ui/Modal'
 import PlayerSwitcher from '../players/PlayerSwitcher'
 
-const LINKS = [
+const BASE_LINKS = [
   { to: '/', label: 'Race Hub', end: true },
   { to: '/scoreboard', label: 'Scoreboard' },
-  { to: '/admin', label: 'Admin' },
 ]
 
 export default function NavBar() {
   const { activePlayer } = usePlayerContext()
   const [switcherOpen, setSwitcherOpen] = useState(false)
+
+  // Non-admins get no Admin link at all — not disabled, not hinted at, just
+  // absent, so there's nothing here to tip them off that the panel exists.
+  const links = activePlayer?.isAdmin ? [...BASE_LINKS, { to: '/admin', label: 'Admin' }] : BASE_LINKS
 
   return (
     <>
@@ -27,7 +30,7 @@ export default function NavBar() {
           </div>
 
           <nav className="hidden items-center gap-1 sm:flex">
-            {LINKS.map((link) => (
+            {links.map((link) => (
               <NavLink
                 key={link.to}
                 to={link.to}
@@ -59,7 +62,7 @@ export default function NavBar() {
         </div>
 
         <nav className="flex items-center gap-1 overflow-x-auto border-t border-track-800 px-4 py-1.5 sm:hidden">
-          {LINKS.map((link) => (
+          {links.map((link) => (
             <NavLink
               key={link.to}
               to={link.to}

@@ -16,7 +16,8 @@
       "Bash(FIRESTORE_EMULATOR_HOST=127.0.0.1:8080 node seed/seed.js)",
       "Bash(lsof -ti:5199 -sTCP:LISTEN)",
       "Bash(ps -p 81716 -o pid,lstart,command=)",
-      "Bash(kill 81716 3898 73010 54896)"
+      "Bash(kill 81716 3898 73010 54896)",
+      "Bash(node test-passcode.mjs)"
     ]
   }
 }

@@ -18,10 +18,11 @@ export default function PlayerForm({ onCreated }) {
     if (!name.trim()) return
     setSaving(true)
     try {
-      const id = await addPlayer({ name: name.trim(), color, emoji })
+      const trimmedName = name.trim()
+      const id = await addPlayer({ name: trimmedName, color, emoji })
       setName('')
       setEmoji('')
-      onCreated?.(id)
+      onCreated?.(id, { name: trimmedName, color, emoji })
     } finally {
       setSaving(false)
     }

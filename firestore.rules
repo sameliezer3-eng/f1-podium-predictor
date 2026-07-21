@@ -12,11 +12,40 @@ service cloud.firestore {
       return race.lockAt <= request.time;
     }
 
-    // Calendar. Readable by anyone in the group; writes (admin edits, lock
-    // timestamps, result entry) just require a signed-in browser session.
+    // Which named player (if any) this browser's anonymous-auth session has
+    // passcode-verified as — see the /sessions block below. Firestore rules
+    // otherwise have no concept of "which player is active," only the raw
+    // per-browser auth uid, so this is the one durable link between the two.
+    function activePlayerId() {
+      return get(/databases/$(database)/documents/sessions/$(request.auth.uid)).data.playerId;
+    }
+
+    function isOwnPlayerDoc(playerId) {
+      return signedIn() && playerId == activePlayerId();
+    }
+
+    function isAdmin() {
+      return signedIn() &&
+        get(/databases/$(database)/documents/players/$(activePlayerId())).data.isAdmin == true;
+    }
+
+    // Binds this browser's anonymous-auth uid to whichever player last
+    // passcode-verified in it. Only the browser itself can write its own
+    // session doc (doc ID == its own uid), and nothing can ever read these
+    // back out over the client SDK — they exist purely for other rules'
+    // internal get() calls above, which bypass `allow read` entirely.
+    match /sessions/{uid} {
+      allow read: if false;
+      allow write: if signedIn() && request.auth.uid == uid;
+    }
+
+    // Calendar. Readable by anyone in the group; writes (result entry, lock
+    // timestamp edits) are admin-only — see isAdmin() above. The player
+    // "did I submit" flags in the /submissions subcollection below are a
+    // separate match block and are NOT covered by this restriction.
     match /races/{raceId} {
       allow read: if true;
-      allow write: if signedIn();
+      allow write: if isAdmin();
     }
 
     // Content-free "finished their pick" flags — no p1/p2/p3 in here, so
@@ -34,28 +63,59 @@ service cloud.firestore {
       allow write: if signedIn();
     }
 
-    // Driver grid. Same trust model — anyone can fix a mid-season lineup swap.
+    // Driver grid. Admin-only — mid-season lineup swaps go through Admin now.
     match /drivers/{driverId} {
       allow read: if true;
-      allow write: if signedIn();
+      allow write: if isAdmin();
     }
 
-    // Named player profiles (no passwords).
+    // Named player profiles (no passwords, but passcode-protected — see
+    // PasscodeSetup/PasscodeLogin). A player can always edit their own doc;
+    // editing someone else's (e.g. resetting their passcode) requires admin.
+    //
+    // The one carve-out is first-time passcode setup: at the exact moment a
+    // brand-new (or reset) player claims their passcode, no session exists
+    // yet to prove "this is them" — that's what the session write right
+    // after is for. So a passcode-only write is allowed on any doc that
+    // doesn't have one set yet, same trust level as picking a name today;
+    // once claimed, further changes need isOwnPlayerDoc() or isAdmin().
+    function isClaimingPasscode() {
+      return resource.data.passcodeHash == null &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['passcodeHash', 'passcodeSetAt']);
+    }
+
     match /players/{playerId} {
       allow read: if true;
-      allow write: if signedIn();
+      // isAdmin must be explicitly false at creation — nobody grants
+      // themselves admin by signing up. It's only ever flipped to true by
+      // hand in the Firebase console (see the "manually set isAdmin" step
+      // in the brief), never through a client write.
+      allow create: if signedIn() && request.resource.data.isAdmin == false;
+      allow update: if signedIn() &&
+        !request.resource.data.diff(resource.data).affectedKeys().hasAny(['isAdmin']) &&
+        (isOwnPlayerDoc(playerId) || isAdmin() || isClaimingPasscode());
+      allow delete: if isAdmin();
     }
 
-    // Scoring rules / app settings.
+    // Scoring rules / app settings. Admin-only.
     match /settings/{settingId} {
       allow read: if true;
-      allow write: if signedIn();
+      allow write: if isAdmin();
     }
 
     // Predictions are the one place we actually gate reads: nobody should be
     // able to see another player's pick for a race that hasn't locked yet.
     // Every prediction doc carries the anonymous-auth uid of whoever wrote it
     // so "is this mine" can be checked without a real login system.
+    //
+    // Unlike the admin checks above, this still keys off the raw per-browser
+    // `authUid` rather than `isOwnPlayerDoc()` / the /sessions link — so a
+    // signed-in browser can technically write a prediction doc for any
+    // playerId, not just whichever player it last passcode-verified as. The
+    // passcode screen in the UI is what actually stops that in practice for
+    // predictions. (The /sessions mechanism added for isAdmin() could tighten
+    // this the same way admin writes are tightened now — deliberately left
+    // out here to keep this change scoped to the admin role.)
     match /predictions/{predictionId} {
       allow read: if signedIn() && (
         resource.data.authUid == request.auth.uid ||

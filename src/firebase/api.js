@@ -29,12 +29,55 @@ export async function addPlayer({ name, color, emoji }) {
     color,
     emoji: emoji || null,
     createdAt: serverTimestamp(),
+    // Both required explicitly, not left to default to "missing": the create
+    // rule requires isAdmin === false (nobody grants themselves admin), and
+    // passcodeHash must exist as null for the "claiming an unset passcode"
+    // rule check to see it rather than erroring on a missing field.
+    isAdmin: false,
+    passcodeHash: null,
+    passcodeSetAt: null,
   })
   return id
 }
 
 export async function updatePlayer(playerId, data) {
   await updateDoc(doc(db, 'players', playerId), data)
+}
+
+export async function setPlayerPasscode(playerId, passcodeHash) {
+  await updateDoc(doc(db, 'players', playerId), {
+    passcodeHash,
+    passcodeSetAt: serverTimestamp(),
+  })
+}
+
+// Admin action: clears a player's passcode so their next login goes through
+// first-time setup again — the only "recovery" path, by design (see brief).
+export async function resetPlayerPasscode(playerId) {
+  await updateDoc(doc(db, 'players', playerId), {
+    passcodeHash: null,
+    passcodeSetAt: null,
+  })
+}
+
+// Binds this browser's anonymous-auth uid to the player who just passed
+// their passcode challenge — the only way security rules can tell "which
+// player is this browser allowed to act as" (see isAdmin()/isOwnPlayerDoc()
+// in firestore.rules). Call right after a successful PasscodeSetup/Login;
+// clear on logout so a stale claim doesn't outlive the UI session.
+export async function setActiveSession(playerId) {
+  await authReady
+  if (!auth?.currentUser) return
+  await setDoc(doc(db, 'sessions', auth.currentUser.uid), {
+    playerId,
+    updatedAt: serverTimestamp(),
+  })
+}
+
+export async function clearActiveSession() {
+  await authReady
+  if (!auth?.currentUser) return
+  await deleteDoc(doc(db, 'sessions', auth.currentUser.uid)).catch(() => {})
 }
 
 // ---- Predictions -----------------------------------------------------------
