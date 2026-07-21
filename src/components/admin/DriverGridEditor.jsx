@@ -1,0 +1,131 @@
+import { useState } from 'react'
+import { deleteDriver, upsertDriver } from '../../firebase/api'
+import { TEAMS } from '../../data/seedData'
+import TeamChip from '../ui/TeamChip'
+
+function DriverRow({ driver }) {
+  const [form, setForm] = useState(driver)
+  const [saving, setSaving] = useState(false)
+  const dirty = JSON.stringify(form) !== JSON.stringify(driver)
+
+  const handleTeamChange = (team) => {
+    const known = TEAMS.find((t) => t.name === team)
+    setForm((f) => ({ ...f, team, teamColor: known?.color || f.teamColor }))
+  }
+
+  const save = async () => {
+    setSaving(true)
+    try {
+      await upsertDriver(driver.id, { name: form.name, team: form.team, teamColor: form.teamColor, active: form.active })
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const remove = async () => {
+    if (!confirm(`Remove ${driver.name} from the grid?`)) return
+    await deleteDriver(driver.id)
+  }
+
+  return (
+    <div className="grid grid-cols-1 items-center gap-2 rounded-xl border border-track-700 bg-track-900 p-3 sm:grid-cols-[1fr_1fr_auto_auto_auto]">
+      <input
+        value={form.name}
+        onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
+        className="rounded-lg border border-track-600 bg-track-800 px-2.5 py-1.5 text-sm text-slate-100 outline-none focus:border-race-red"
+      />
+      <input
+        value={form.team}
+        list="team-names"
+        onChange={(e) => handleTeamChange(e.target.value)}
+        className="rounded-lg border border-track-600 bg-track-800 px-2.5 py-1.5 text-sm text-slate-100 outline-none focus:border-race-red"
+      />
+      <input
+        type="color"
+        value={form.teamColor}
+        onChange={(e) => setForm((f) => ({ ...f, teamColor: e.target.value }))}
+        className="h-8 w-10 rounded border border-track-600 bg-track-800"
+      />
+      <TeamChip team={form.team} color={form.teamColor} className="justify-self-start" />
+      <div className="flex items-center gap-2 justify-self-end">
+        <button
+          onClick={save}
+          disabled={!dirty || saving}
+          className="rounded-lg bg-race-red/90 px-3 py-1.5 text-xs font-bold uppercase text-white transition hover:bg-race-red disabled:opacity-30"
+        >
+          Save
+        </button>
+        <button onClick={remove} className="rounded-lg border border-track-600 px-3 py-1.5 text-xs font-semibold text-slate-400 hover:border-race-red hover:text-race-red">
+          Remove
+        </button>
+      </div>
+    </div>
+  )
+}
+
+export default function DriverGridEditor({ drivers }) {
+  const [newDriver, setNewDriver] = useState({ name: '', team: TEAMS[0].name, teamColor: TEAMS[0].color })
+  const [adding, setAdding] = useState(false)
+
+  const handleAdd = async (e) => {
+    e.preventDefault()
+    if (!newDriver.name.trim()) return
+    setAdding(true)
+    try {
+      await upsertDriver(null, { ...newDriver, name: newDriver.name.trim(), active: true })
+      setNewDriver({ name: '', team: TEAMS[0].name, teamColor: TEAMS[0].color })
+    } finally {
+      setAdding(false)
+    }
+  }
+
+  return (
+    <div className="flex flex-col gap-4">
+      <datalist id="team-names">
+        {TEAMS.map((t) => (
+          <option key={t.name} value={t.name} />
+        ))}
+      </datalist>
+
+      <form onSubmit={handleAdd} className="flex flex-wrap items-end gap-2 rounded-xl border border-dashed border-track-600 p-3">
+        <label className="flex flex-col gap-1">
+          <span className="text-xs text-slate-500">New driver</span>
+          <input
+            value={newDriver.name}
+            onChange={(e) => setNewDriver((d) => ({ ...d, name: e.target.value }))}
+            placeholder="Driver name"
+            className="rounded-lg border border-track-600 bg-track-800 px-2.5 py-1.5 text-sm text-slate-100 outline-none focus:border-race-red"
+          />
+        </label>
+        <label className="flex flex-col gap-1">
+          <span className="text-xs text-slate-500">Team</span>
+          <select
+            value={newDriver.team}
+            onChange={(e) => {
+              const team = TEAMS.find((t) => t.name === e.target.value)
+              setNewDriver((d) => ({ ...d, team: team.name, teamColor: team.color }))
+            }}
+            className="rounded-lg border border-track-600 bg-track-800 px-2.5 py-1.5 text-sm text-slate-100 outline-none focus:border-race-red"
+          >
+            {TEAMS.map((t) => (
+              <option key={t.name} value={t.name}>{t.name}</option>
+            ))}
+          </select>
+        </label>
+        <button
+          type="submit"
+          disabled={!newDriver.name.trim() || adding}
+          className="rounded-lg bg-race-red px-4 py-1.5 text-sm font-bold uppercase text-white transition hover:bg-red-600 disabled:opacity-40"
+        >
+          Add driver
+        </button>
+      </form>
+
+      <div className="flex flex-col gap-2">
+        {drivers.map((d) => (
+          <DriverRow key={d.id} driver={d} />
+        ))}
+      </div>
+    </div>
+  )
+}

@@ -1,0 +1,83 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function isRaceLocked(raceId) {
+      let race = get(/databases/$(database)/documents/races/$(raceId)).data;
+      return race.lockAt <= request.time;
+    }
+
+    // Calendar. Readable by anyone in the group; writes (admin edits, lock
+    // timestamps, result entry) just require a signed-in browser session.
+    match /races/{raceId} {
+      allow read: if true;
+      allow write: if signedIn();
+    }
+
+    // Content-free "finished their pick" flags — no p1/p2/p3 in here, so
+    // it's fine for these to stay readable even while the race is open.
+    // This is what the calendar's "3/5 predicted" and per-race "who's
+    // still out" status is built from, without exposing anyone's picks.
+    //
+    // Declared with a `{path=**}` wildcard (rather than nested under
+    // /races/{raceId}) because that's what Firestore requires to authorize
+    // a `collectionGroup('submissions')` query — a plain nested match only
+    // covers reads scoped to one race's subcollection, not the cross-race
+    // group query the calendar view uses.
+    match /{path=**}/submissions/{playerId} {
+      allow read: if true;
+      allow write: if signedIn();
+    }
+
+    // Driver grid. Same trust model — anyone can fix a mid-season lineup swap.
+    match /drivers/{driverId} {
+      allow read: if true;
+      allow write: if signedIn();
+    }
+
+    // Named player profiles (no passwords).
+    match /players/{playerId} {
+      allow read: if true;
+      allow write: if signedIn();
+    }
+
+    // Scoring rules / app settings.
+    match /settings/{settingId} {
+      allow read: if true;
+      allow write: if signedIn();
+    }
+
+    // Predictions are the one place we actually gate reads: nobody should be
+    // able to see another player's pick for a race that hasn't locked yet.
+    // Every prediction doc carries the anonymous-auth uid of whoever wrote it
+    // so "is this mine" can be checked without a real login system.
+    match /predictions/{predictionId} {
+      allow read: if signedIn() && (
+        resource.data.authUid == request.auth.uid ||
+        isRaceLocked(resource.data.raceId)
+      );
+
+      allow create: if signedIn() &&
+        request.resource.data.authUid == request.auth.uid &&
+        request.resource.data.raceId is string &&
+        request.resource.data.playerId is string;
+
+      // Before lock: only the author can edit their own pick.
+      // After lock: any signed-in session may write (this is how the admin
+      // results screen posts computed points back onto each prediction).
+      allow update: if signedIn() && (
+        (resource.data.authUid == request.auth.uid && !isRaceLocked(resource.data.raceId)) ||
+        isRaceLocked(resource.data.raceId)
+      );
+
+      allow delete: if signedIn() &&
+        resource.data.authUid == request.auth.uid &&
+        !isRaceLocked(resource.data.raceId);
+    }
+  }
+}

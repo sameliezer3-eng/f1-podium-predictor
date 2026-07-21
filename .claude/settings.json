@@ -1,0 +1,20 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(node check2.mjs)",
+      "Bash(npx firebase-tools *)",
+      "Bash(java -version)",
+      "Bash(sed -i '' \"s|import { scorePrediction, aggregatePlayerStats } from '../../../../Users/samswarna/Desktop/f1-podium-predictor/src/lib/scoring.js'|import { scorePrediction, aggregatePlayerStats } from '/Users/samswarna/Desktop/f1-podium-predictor/src/lib/scoring.js'|\" /private/tmp/claude-501/-Users-samswarna-Desktop-f1-podium-predictor/14441232-1808-4f63-a7a6-97739ced87c2/scratchpad/test-scoring.mjs)",
+      "Bash(node /private/tmp/claude-501/-Users-samswarna-Desktop-f1-podium-predictor/14441232-1808-4f63-a7a6-97739ced87c2/scratchpad/test-scoring.mjs)",
+      "Bash(lsof -ti:5183 -sTCP:LISTEN)",
+      "Bash(xargs -r kill)",
+      "Bash(lsof -nP -iTCP -sTCP:LISTEN)",
+      "Bash(lsof -ti:5183)",
+      "Bash(ps -p 54896 -o pid,command)",
+      "Bash(node check-config.mjs)",
+      "Bash(ps -p 54896 -o pid,lstart,command)",
+      "Bash(FIRESTORE_EMULATOR_HOST=127.0.0.1:8080 node seed/seed.js)",
+      "Bash(lsof -ti:5199 -sTCP:LISTEN)"
+    ]
+  }
+}
