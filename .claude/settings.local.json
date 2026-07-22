@@ -2,7 +2,8 @@
   "permissions": {
     "allow": [
       "Bash(node test-reset.mjs)",
-      "Bash(node test-override-locked.mjs)"
+      "Bash(node test-override-locked.mjs)",
+      "Bash(node test-session-heal.mjs)"
     ]
   }
 }

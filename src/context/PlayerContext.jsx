@@ -44,6 +44,33 @@ export function PlayerProvider({ children }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loading, players, activePlayerId, restoreInProgress])
 
+  // Re-binds this browser's *current* auth uid to activePlayerId on every
+  // load where localStorage remembers a session — not just right after
+  // PasscodeSetup/Login. The gap this closes: `activatePlayer` only writes
+  // sessions/{uid} once, at the moment of that login. If the browser's
+  // anonymous-auth identity ever changes afterward — cleared storage, a
+  // fresh incognito/private context, a token that didn't survive a long
+  // gap between visits — Firebase Auth silently issues a *new* uid, but
+  // localStorage still says "activePlayerId = X" and the UI still shows
+  // that player as logged in. Nothing about that is wrong on its own, but
+  // the Firestore rules' isAdmin()/isOwnPlayerDoc() key off
+  // sessions/{request.auth.uid}, which was only ever written for the *old*
+  // uid — so every admin-gated write (delete, reset, results, drivers,
+  // calendar — all of them, simultaneously, which is exactly the shape of
+  // "everything admin broke at once") starts failing with permission-denied
+  // while the header still confidently shows the admin as logged in. Cheap
+  // and idempotent to just re-assert the binding whenever we have both a
+  // resolved player and a real auth session, rather than trusting a binding
+  // made an arbitrary amount of time ago still matches the uid making the
+  // request right now.
+  useEffect(() => {
+    if (!activePlayerId || !players.some((p) => p.id === activePlayerId)) return
+    setActiveSession(activePlayerId).catch((err) => {
+      console.error('Failed to (re)establish session binding for', activePlayerId, err.code, err.message, err)
+    })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activePlayerId, players.length > 0])
+
   const activePlayer = useMemo(
     () => players.find((p) => p.id === activePlayerId) ?? null,
     [players, activePlayerId],

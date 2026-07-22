@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import DriverSelect from '../ui/DriverSelect'
+import Modal from '../ui/Modal'
 import { clearRaceResults, submitRaceResults } from '../../firebase/api'
 import { getRaceStatus } from '../../lib/raceStatus'
 
@@ -8,6 +9,9 @@ export default function ResultsEntry({ races, drivers, scoringSettings }) {
   const [raceId, setRaceId] = useState('')
   const [form, setForm] = useState({ p1: null, p2: null, p3: null, pole: null, fastestLap: null })
   const [status, setStatus] = useState('idle')
+  const [confirmingClear, setConfirmingClear] = useState(false)
+  const [clearing, setClearing] = useState(false)
+  const [clearError, setClearError] = useState(null)
 
   const race = races.find((r) => r.id === raceId)
 
@@ -36,18 +40,25 @@ export default function ResultsEntry({ races, drivers, scoringSettings }) {
       const count = await submitRaceResults(raceId, form, scoringSettings)
       setStatus(`Scored ${count} prediction${count === 1 ? '' : 's'}.`)
     } catch (err) {
-      console.error(err)
-      setStatus('Failed to save — see console.')
+      console.error('Results save failed:', err.code, err.message, err)
+      setStatus(err.code === 'permission-denied' ? "Couldn't save — a permissions issue on our end, not yours." : 'Failed to save — see console.')
     }
   }
 
   const handleClear = async () => {
-    if (!raceId) return
-    if (!confirm('Clear results and un-score all predictions for this race?')) return
-    setStatus('saving')
-    await clearRaceResults(raceId)
-    setForm({ p1: null, p2: null, p3: null, pole: null, fastestLap: null })
-    setStatus('Cleared.')
+    setClearing(true)
+    setClearError(null)
+    try {
+      await clearRaceResults(raceId)
+      setForm({ p1: null, p2: null, p3: null, pole: null, fastestLap: null })
+      setStatus('Cleared.')
+      setConfirmingClear(false)
+    } catch (err) {
+      console.error('Clear results failed:', err.code, err.message, err)
+      setClearError(err.code === 'permission-denied' ? "Couldn't clear — a permissions issue on our end, not yours." : "Couldn't clear — try again in a moment.")
+    } finally {
+      setClearing(false)
+    }
   }
 
   return (
@@ -116,7 +127,10 @@ export default function ResultsEntry({ races, drivers, scoringSettings }) {
             {race.results && (
               <button
                 type="button"
-                onClick={handleClear}
+                onClick={() => {
+                  setClearError(null)
+                  setConfirmingClear(true)
+                }}
                 className="rounded-lg border border-track-600 px-4 py-2.5 text-sm font-semibold text-slate-300 transition hover:border-race-red hover:text-race-red"
               >
                 Clear results
@@ -125,6 +139,39 @@ export default function ResultsEntry({ races, drivers, scoringSettings }) {
             {status !== 'idle' && status !== 'saving' && <span className="text-sm text-slate-400">{status}</span>}
           </div>
         </form>
+      )}
+
+      {confirmingClear && (
+        <Modal title="Clear results" onClose={() => !clearing && setConfirmingClear(false)}>
+          <div className="flex flex-col gap-4">
+            <p className="text-sm text-slate-300">
+              Clear the results for <strong>{race?.name}</strong> and un-score every prediction for this race? Players
+              keep their picks — only the actual result and everyone's points are removed. You can re-enter results
+              later to re-score.
+            </p>
+            {clearError && (
+              <p className="rounded-lg border border-race-red/30 bg-race-red/10 px-3 py-2 text-sm text-race-red">
+                {clearError}
+              </p>
+            )}
+            <div className="flex items-center gap-3">
+              <button
+                onClick={handleClear}
+                disabled={clearing}
+                className="rounded-lg bg-race-red px-4 py-2.5 text-sm font-bold uppercase tracking-wide text-white transition hover:bg-red-600 disabled:opacity-40"
+              >
+                {clearing ? 'Clearing…' : 'Clear results'}
+              </button>
+              <button
+                onClick={() => setConfirmingClear(false)}
+                disabled={clearing}
+                className="text-sm text-slate-400 hover:text-slate-200 disabled:opacity-40"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </Modal>
       )}
     </div>
   )

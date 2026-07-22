@@ -15,6 +15,7 @@ function RaceRow({ race }) {
     sprint: race.sprint,
   })
   const [saving, setSaving] = useState(false)
+  const [error, setError] = useState(null)
 
   const dirty =
     form.dateStart !== toInputDate(race.dateStart) ||
@@ -23,6 +24,7 @@ function RaceRow({ race }) {
 
   const save = async () => {
     setSaving(true)
+    setError(null)
     try {
       await updateRace(race.id, {
         dateStart: Timestamp.fromDate(new Date(`${form.dateStart}T00:00:00Z`)),
@@ -30,6 +32,9 @@ function RaceRow({ race }) {
         sprint: form.sprint,
         lockAt: Timestamp.fromDate(new Date(`${form.dateStart}T00:00:00Z`)),
       })
+    } catch (err) {
+      console.error('Race calendar save failed:', err.code, err.message, err)
+      setError(err.code === 'permission-denied' ? "Couldn't save — permissions issue." : "Couldn't save — try again.")
     } finally {
       setSaving(false)
     }
@@ -67,6 +72,7 @@ function RaceRow({ race }) {
       >
         Save
       </button>
+      {error && <p className="text-xs text-race-red sm:col-span-6">{error}</p>}
     </div>
   )
 }

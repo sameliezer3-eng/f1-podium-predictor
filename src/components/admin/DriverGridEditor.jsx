@@ -6,6 +6,7 @@ import TeamChip from '../ui/TeamChip'
 function DriverRow({ driver }) {
   const [form, setForm] = useState(driver)
   const [saving, setSaving] = useState(false)
+  const [error, setError] = useState(null)
   const dirty = JSON.stringify(form) !== JSON.stringify(driver)
 
   const handleTeamChange = (team) => {
@@ -15,8 +16,12 @@ function DriverRow({ driver }) {
 
   const save = async () => {
     setSaving(true)
+    setError(null)
     try {
       await upsertDriver(driver.id, { name: form.name, team: form.team, teamColor: form.teamColor, active: form.active })
+    } catch (err) {
+      console.error('Driver save failed:', err.code, err.message, err)
+      setError(err.code === 'permission-denied' ? "Couldn't save — permissions issue." : "Couldn't save — try again.")
     } finally {
       setSaving(false)
     }
@@ -24,7 +29,13 @@ function DriverRow({ driver }) {
 
   const remove = async () => {
     if (!confirm(`Remove ${driver.name} from the grid?`)) return
-    await deleteDriver(driver.id)
+    setError(null)
+    try {
+      await deleteDriver(driver.id)
+    } catch (err) {
+      console.error('Driver remove failed:', err.code, err.message, err)
+      setError(err.code === 'permission-denied' ? "Couldn't remove — permissions issue." : "Couldn't remove — try again.")
+    }
   }
 
   return (
@@ -59,6 +70,7 @@ function DriverRow({ driver }) {
           Remove
         </button>
       </div>
+      {error && <p className="text-xs text-race-red sm:col-span-5">{error}</p>}
     </div>
   )
 }
@@ -66,14 +78,19 @@ function DriverRow({ driver }) {
 export default function DriverGridEditor({ drivers }) {
   const [newDriver, setNewDriver] = useState({ name: '', team: TEAMS[0].name, teamColor: TEAMS[0].color })
   const [adding, setAdding] = useState(false)
+  const [addError, setAddError] = useState(null)
 
   const handleAdd = async (e) => {
     e.preventDefault()
     if (!newDriver.name.trim()) return
     setAdding(true)
+    setAddError(null)
     try {
       await upsertDriver(null, { ...newDriver, name: newDriver.name.trim(), active: true })
       setNewDriver({ name: '', team: TEAMS[0].name, teamColor: TEAMS[0].color })
+    } catch (err) {
+      console.error('Add driver failed:', err.code, err.message, err)
+      setAddError(err.code === 'permission-denied' ? "Couldn't add — permissions issue." : "Couldn't add — try again.")
     } finally {
       setAdding(false)
     }
@@ -119,6 +136,7 @@ export default function DriverGridEditor({ drivers }) {
         >
           Add driver
         </button>
+        {addError && <span className="text-xs text-race-red">{addError}</span>}
       </form>
 
       <div className="flex flex-col gap-2">
