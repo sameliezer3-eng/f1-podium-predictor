@@ -267,9 +267,19 @@ export async function adminOverridePrediction({
     })
   }
 
+  // The picks write above has already landed by the time we get here — if
+  // *this* write fails, the override itself still took effect, just without
+  // updated points. Tagged with `.phase` so the caller (PredictionOverride)
+  // can say so specifically instead of a blanket "failed to save" that would
+  // wrongly imply the pick change itself didn't go through.
   if (raceResults) {
-    const { points, breakdown, correctPodiumCount, guessCount } = scorePrediction(picks, raceResults, scoringSettings)
-    await updateDoc(ref, { points, breakdown, correctPodiumCount, guessCount, scoredAt: serverTimestamp() })
+    try {
+      const { points, breakdown, correctPodiumCount, guessCount } = scorePrediction(picks, raceResults, scoringSettings)
+      await updateDoc(ref, { points, breakdown, correctPodiumCount, guessCount, scoredAt: serverTimestamp() })
+    } catch (err) {
+      err.phase = 'rescore'
+      throw err
+    }
   }
 }
 

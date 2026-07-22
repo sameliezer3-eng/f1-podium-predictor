@@ -63,8 +63,17 @@ export default function PredictionOverride({ players, races, drivers, scoringSet
       })
       setStatus(race?.results ? 'Saved and rescored.' : 'Saved.')
     } catch (err) {
-      console.error(err)
-      setStatus('Failed to save — see console.')
+      // Log the real code/message on its own line — the raw error object
+      // alone is easy to miss in the console, and "see console" is only
+      // useful if what's there actually says something.
+      console.error('Admin override failed:', err.name, err.code, err.message, err)
+      if (err.phase === 'rescore') {
+        setStatus('Pick saved, but re-scoring failed — try saving again to retry just the points.')
+      } else if (err.code === 'permission-denied') {
+        setStatus("Couldn't save — a permissions issue on our end, not yours.")
+      } else {
+        setStatus('Failed to save — see console.')
+      }
     } finally {
       setSaving(false)
     }
