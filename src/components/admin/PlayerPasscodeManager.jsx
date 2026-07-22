@@ -5,29 +5,51 @@ import Modal from '../ui/Modal'
 import { deletePlayer, resetPlayerPasscode } from '../../firebase/api'
 
 export default function PlayerPasscodeManager({ players }) {
-  const [resettingId, setResettingId] = useState(null)
+  const [resettingPlayer, setResettingPlayer] = useState(null)
+  const [resetting, setResetting] = useState(false)
+  const [resetError, setResetError] = useState(null)
+
   const [deletingPlayer, setDeletingPlayer] = useState(null)
   const [deleting, setDeleting] = useState(false)
+  const [deleteError, setDeleteError] = useState(null)
 
   if (players.length === 0) {
     return <EmptyState icon="🧑‍🤝‍🧑" title="No players yet" subtitle="Players show up here once someone joins the grid." />
   }
 
-  const handleReset = async (player) => {
-    if (!confirm(`Reset ${player.name}'s passcode? They'll set a new one next time they log in.`)) return
-    setResettingId(player.id)
+  const openReset = (player) => {
+    setResetError(null)
+    setResettingPlayer(player)
+  }
+
+  const handleReset = async () => {
+    setResetting(true)
+    setResetError(null)
     try {
-      await resetPlayerPasscode(player.id)
+      await resetPlayerPasscode(resettingPlayer.id)
+      setResettingPlayer(null)
+    } catch (err) {
+      console.error('Passcode reset failed:', err.code, err.message, err)
+      setResetError("Couldn't reset the passcode — try again in a moment.")
     } finally {
-      setResettingId(null)
+      setResetting(false)
     }
+  }
+
+  const openDelete = (player) => {
+    setDeleteError(null)
+    setDeletingPlayer(player)
   }
 
   const handleDelete = async () => {
     setDeleting(true)
+    setDeleteError(null)
     try {
       await deletePlayer(deletingPlayer.id)
       setDeletingPlayer(null)
+    } catch (err) {
+      console.error('Player delete failed:', err.code, err.message, err)
+      setDeleteError("Couldn't delete this player — try again in a moment.")
     } finally {
       setDeleting(false)
     }
@@ -48,14 +70,14 @@ export default function PlayerPasscodeManager({ players }) {
             <span className="text-xs text-slate-500">Not set yet</span>
           )}
           <button
-            onClick={() => handleReset(p)}
-            disabled={resettingId === p.id || !p.passcodeHash}
+            onClick={() => openReset(p)}
+            disabled={!p.passcodeHash}
             className="rounded-lg border border-track-600 px-3 py-1.5 text-xs font-semibold text-slate-300 transition hover:border-race-red hover:text-race-red disabled:opacity-40"
           >
-            {resettingId === p.id ? 'Resetting…' : 'Reset passcode'}
+            Reset passcode
           </button>
           <button
-            onClick={() => setDeletingPlayer(p)}
+            onClick={() => openDelete(p)}
             className="rounded-lg border border-track-600 px-3 py-1.5 text-xs font-semibold text-race-red/80 transition hover:border-race-red hover:text-race-red"
           >
             Delete
@@ -63,8 +85,44 @@ export default function PlayerPasscodeManager({ players }) {
         </div>
       ))}
 
+      {resettingPlayer && (
+        <Modal title="Reset passcode" onClose={() => !resetting && setResettingPlayer(null)}>
+          <div className="flex flex-col gap-4">
+            <div className="flex items-center gap-3">
+              <Avatar player={resettingPlayer} size="md" />
+              <span className="font-semibold text-slate-100">{resettingPlayer.name}</span>
+            </div>
+            <p className="text-sm text-slate-300">
+              Reset <strong>{resettingPlayer.name}</strong>'s passcode? They'll need to set a new one next time they
+              log in — this doesn't touch their predictions or history, just clears the old passcode.
+            </p>
+            {resetError && (
+              <p className="rounded-lg border border-race-red/30 bg-race-red/10 px-3 py-2 text-sm text-race-red">
+                {resetError}
+              </p>
+            )}
+            <div className="flex items-center gap-3">
+              <button
+                onClick={handleReset}
+                disabled={resetting}
+                className="rounded-lg bg-race-red px-4 py-2.5 text-sm font-bold uppercase tracking-wide text-white transition hover:bg-red-600 disabled:opacity-40"
+              >
+                {resetting ? 'Resetting…' : `Reset ${resettingPlayer.name}'s passcode`}
+              </button>
+              <button
+                onClick={() => setResettingPlayer(null)}
+                disabled={resetting}
+                className="text-sm text-slate-400 hover:text-slate-200 disabled:opacity-40"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </Modal>
+      )}
+
       {deletingPlayer && (
-        <Modal title="Delete player" onClose={() => setDeletingPlayer(null)}>
+        <Modal title="Delete player" onClose={() => !deleting && setDeletingPlayer(null)}>
           <div className="flex flex-col gap-4">
             <div className="flex items-center gap-3">
               <Avatar player={deletingPlayer} size="md" />
@@ -78,6 +136,11 @@ export default function PlayerPasscodeManager({ players }) {
               Consider exporting a backup first (Admin → Backup) — restoring a deleted player later means re-adding
               them from scratch with no history, unless you've got a backup file to restore from.
             </p>
+            {deleteError && (
+              <p className="rounded-lg border border-race-red/30 bg-race-red/10 px-3 py-2 text-sm text-race-red">
+                {deleteError}
+              </p>
+            )}
             <div className="flex items-center gap-3">
               <button
                 onClick={handleDelete}
@@ -88,7 +151,8 @@ export default function PlayerPasscodeManager({ players }) {
               </button>
               <button
                 onClick={() => setDeletingPlayer(null)}
-                className="text-sm text-slate-400 hover:text-slate-200"
+                disabled={deleting}
+                className="text-sm text-slate-400 hover:text-slate-200 disabled:opacity-40"
               >
                 Cancel
               </button>
