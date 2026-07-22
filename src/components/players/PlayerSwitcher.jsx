@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { usePlayerContext } from '../../context/PlayerContext'
 import Avatar from '../ui/Avatar'
 import PlayerForm from './PlayerForm'
@@ -7,38 +8,66 @@ import PasscodeLogin from './PasscodeLogin'
 
 export default function PlayerSwitcher({ onDone }) {
   const { players, activePlayerId, activePlayer, activatePlayer, logout } = usePlayerContext()
+  const navigate = useNavigate()
   const [showForm, setShowForm] = useState(players.length === 0)
   // 'select' | { mode: 'setup' | 'login' | 'forgot', player }
   const [step, setStep] = useState({ mode: 'select' })
+  const [activationError, setActivationError] = useState(null)
 
-  const backToSelect = () => setStep({ mode: 'select' })
+  const backToSelect = () => {
+    setActivationError(null)
+    setStep({ mode: 'select' })
+  }
 
   const handlePick = (player) => {
     if (player.id === activePlayerId) {
       onDone?.()
       return
     }
+    setActivationError(null)
     setStep({ mode: player.passcodeHash ? 'login' : 'setup', player })
   }
 
+  // The passcode itself is already verified correct by the time this runs —
+  // what's left is binding the browser's session (a Firestore write) and
+  // getting the player into the app. That write can fail (dropped
+  // connection, emulator not running, transient rules hiccup); without a
+  // catch here, a rejected promise would just leave the modal sitting open
+  // forever with no feedback, since neither setStep nor onDone would ever
+  // run. Surfaced inline instead, with a retry, rather than failing silently.
   const handleVerified = async (playerId) => {
-    await activatePlayer(playerId)
-    setStep({ mode: 'select' })
-    onDone?.()
+    setActivationError(null)
+    try {
+      await activatePlayer(playerId)
+      setStep({ mode: 'select' })
+      onDone?.()
+      navigate('/')
+    } catch (err) {
+      console.error(err)
+      setActivationError('Something went wrong signing you in — check your connection and try again.')
+    }
   }
 
   if (step.mode === 'setup') {
-    return <PasscodeSetup player={step.player} onSuccess={() => handleVerified(step.player.id)} onBack={backToSelect} />
+    return (
+      <div className="flex flex-col gap-4">
+        {activationError && <ActivationError message={activationError} />}
+        <PasscodeSetup player={step.player} onSuccess={() => handleVerified(step.player.id)} onBack={backToSelect} />
+      </div>
+    )
   }
 
   if (step.mode === 'login') {
     return (
-      <PasscodeLogin
-        player={step.player}
-        onSuccess={() => handleVerified(step.player.id)}
-        onBack={backToSelect}
-        onForgot={() => setStep({ mode: 'forgot', player: step.player })}
-      />
+      <div className="flex flex-col gap-4">
+        {activationError && <ActivationError message={activationError} />}
+        <PasscodeLogin
+          player={step.player}
+          onSuccess={() => handleVerified(step.player.id)}
+          onBack={backToSelect}
+          onForgot={() => setStep({ mode: 'forgot', player: step.player })}
+        />
+      </div>
     )
   }
 
@@ -99,5 +128,11 @@ export default function PlayerSwitcher({ onDone }) {
         </button>
       )}
     </div>
+  )
+}
+
+function ActivationError({ message }) {
+  return (
+    <p className="rounded-lg border border-race-red/30 bg-race-red/10 px-3 py-2 text-sm text-race-red">{message}</p>
   )
 }
