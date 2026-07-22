@@ -46,6 +46,19 @@ if (useEmulator) {
   if (auth) connectAuthEmulator(auth, 'http://127.0.0.1:9099', { disableWarnings: true })
 }
 
+// Thrown (not just logged) whenever code downstream needs to act on "auth
+// didn't work" specifically — e.g. PlayerSwitcher showing a message that
+// actually names the real problem instead of a generic "try again". Most
+// common real-world cause: the Anonymous provider isn't enabled for this
+// Firebase project yet (Firebase console → Authentication → Sign-in method).
+export class AuthUnavailableError extends Error {
+  constructor(cause) {
+    super(cause ? `Firebase Auth unavailable: ${cause.code || cause.message}` : 'Firebase Auth unavailable')
+    this.name = 'AuthUnavailableError'
+    this.cause = cause
+  }
+}
+
 // Every browser session gets a stable anonymous UID. This is only used by
 // Firestore security rules to tell "my prediction" apart from everyone
 // else's before a race locks — it is not a visible login. The "who am I"
@@ -61,7 +74,17 @@ if (auth) {
       authReadyResolve(user)
     } else {
       signInAnonymously(auth).catch((err) => {
-        console.error('Anonymous sign-in failed', err)
+        // Log the real Firebase error code/message, not a paraphrase — this
+        // is what actually distinguishes "Anonymous provider disabled in
+        // the console" (auth/admin-restricted-operation or similar) from a
+        // genuine network problem. Previously this just logged and left
+        // `authReady` unresolved forever, so anything awaiting it (like
+        // signing a player in) would hang silently instead of failing
+        // visibly. Resolving with null here means auth.currentUser stays
+        // null and callers can check for that and throw a clear,
+        // catchable AuthUnavailableError instead of hanging.
+        console.error('Anonymous sign-in failed:', err.code, err.message, err)
+        authReadyResolve(null)
       })
     }
   })

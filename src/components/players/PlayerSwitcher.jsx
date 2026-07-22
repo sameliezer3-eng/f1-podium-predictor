@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { usePlayerContext } from '../../context/PlayerContext'
+import { AuthUnavailableError } from '../../firebase/config'
 import Avatar from '../ui/Avatar'
 import PlayerForm from './PlayerForm'
 import PasscodeSetup from './PasscodeSetup'
@@ -43,8 +44,31 @@ export default function PlayerSwitcher({ onDone }) {
       onDone?.()
       navigate('/')
     } catch (err) {
-      console.error(err)
-      setActivationError('Something went wrong signing you in — check your connection and try again.')
+      // Log the real error, not a paraphrase — "check your connection" was
+      // a guess dressed up as a diagnosis, and it's almost never actually a
+      // connection problem. The two real causes look different in the
+      // console: an AuthUnavailableError means signInAnonymously() itself
+      // failed (most commonly the Anonymous provider isn't enabled for
+      // this Firebase project — console → Authentication → Sign-in
+      // method); anything else here is the Firestore write to bind the
+      // session (see setActiveSession), and err.code will say why
+      // (permission-denied almost always means the deployed rules are
+      // stale — `firebase deploy --only firestore:rules` — since the
+      // session doc is what isAdmin()/isOwnPlayerDoc() depend on).
+      console.error('Sign-in activation failed:', err.name, err.code, err.message, err)
+      if (err instanceof AuthUnavailableError) {
+        setActivationError(
+          "Sign-in isn't working right now — this usually means Firebase Authentication needs to be set up " +
+            '(Anonymous sign-in enabled in the Firebase console). Ask whoever runs this app to check.',
+        )
+      } else if (err.code === 'permission-denied') {
+        setActivationError(
+          "Couldn't finish signing you in — a permissions issue on our end, not yours. " +
+            'Ask whoever runs this app to check the security rules are up to date.',
+        )
+      } else {
+        setActivationError("Couldn't set up your login — try again in a moment.")
+      }
     }
   }
 

@@ -12,7 +12,7 @@ import {
   where,
   writeBatch,
 } from 'firebase/firestore'
-import { db, auth, authReady } from './config'
+import { db, auth, authReady, AuthUnavailableError } from './config'
 import { scorePrediction } from '../lib/scoring'
 
 const slugify = (str) =>
@@ -68,7 +68,15 @@ export async function resetPlayerPasscode(playerId) {
 // clear on logout so a stale claim doesn't outlive the UI session.
 export async function setActiveSession(playerId) {
   await authReady
-  if (!auth?.currentUser) return
+  if (!auth?.currentUser) {
+    // Not silently skipped: this is called right after passcode
+    // verification (see PlayerSwitcher.handleVerified), and a signed-out
+    // browser here means the whole "you're logged in" state the caller is
+    // about to set up would be a lie — Firestore rules key admin/ownership
+    // checks off this same session. Thrown so the UI can show something
+    // truthful instead of quietly proceeding as if it worked.
+    throw new AuthUnavailableError()
+  }
   await setDoc(doc(db, 'sessions', auth.currentUser.uid), {
     playerId,
     updatedAt: serverTimestamp(),
@@ -107,7 +115,7 @@ export function predictionId(raceId, playerId) {
 export async function upsertPrediction({ raceId, playerId, p1, p2, p3, pole, fastestLap }) {
   await authReady
   if (!auth?.currentUser) {
-    throw new Error('Firebase isn\'t configured yet — add your project keys to .env (see .env.example).')
+    throw new AuthUnavailableError()
   }
 
   // Defense in depth: PredictionForm already checks useRestoreStatus() and
@@ -231,7 +239,7 @@ export async function adminOverridePrediction({
 }) {
   await authReady
   if (!auth?.currentUser) {
-    throw new Error('Firebase isn\'t configured yet — add your project keys to .env (see .env.example).')
+    throw new AuthUnavailableError()
   }
 
   const ref = doc(db, 'predictions', predictionId(raceId, playerId))
