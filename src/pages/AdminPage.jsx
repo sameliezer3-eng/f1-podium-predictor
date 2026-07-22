@@ -7,6 +7,8 @@ import ScoringSettings from '../components/admin/ScoringSettings'
 import DriverGridEditor from '../components/admin/DriverGridEditor'
 import RaceCalendarEditor from '../components/admin/RaceCalendarEditor'
 import PlayerPasscodeManager from '../components/admin/PlayerPasscodeManager'
+import PredictionOverride from '../components/admin/PredictionOverride'
+import DatabaseBackup from '../components/admin/DatabaseBackup'
 
 const TABS = [
   { key: 'results', label: 'Race results' },
@@ -14,6 +16,8 @@ const TABS = [
   { key: 'grid', label: 'Driver grid' },
   { key: 'calendar', label: 'Calendar' },
   { key: 'players', label: 'Players' },
+  { key: 'override', label: 'Override' },
+  { key: 'backup', label: 'Backup' },
 ]
 
 export default function AdminPage() {
@@ -64,6 +68,10 @@ export default function AdminPage() {
       {tab === 'grid' && <DriverGridEditor drivers={drivers} />}
       {tab === 'calendar' && <RaceCalendarEditor races={races} />}
       {tab === 'players' && <PlayerPasscodeManager players={players} />}
+      {tab === 'override' && (
+        <PredictionOverride players={players} races={races} drivers={drivers} scoringSettings={scoringSettings} />
+      )}
+      {tab === 'backup' && <DatabaseBackup />}
     </div>
   )
 }

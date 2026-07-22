@@ -1,4 +1,4 @@
-# Paddock Predictor 🏁
+# Fam1 🏁
 
 A friendly F1 2026 prediction league for a group of friends: pick the top 3 finishers
 for each Grand Prix, track who's most accurate over the season, and see the standings

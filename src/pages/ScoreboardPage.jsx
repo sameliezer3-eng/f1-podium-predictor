@@ -7,6 +7,7 @@ import TrendChart from '../components/scoreboard/TrendChart'
 import RacePodiumMini from '../components/scoreboard/RacePodiumMini'
 import PredictionsGrid from '../components/race/PredictionsGrid'
 import EmptyState from '../components/ui/EmptyState'
+import LoadingScreen from '../components/ui/LoadingScreen'
 
 export default function ScoreboardPage() {
   const { data: races, loading: racesLoading } = useRaces()
@@ -49,7 +50,7 @@ export default function ScoreboardPage() {
   const selectedRace = completedRaces.find((r) => r.id === selectedRaceId)
   const selectedRacePredictions = seasonPredictions.filter((p) => p.raceId === selectedRaceId)
 
-  if (racesLoading) return <p className="py-16 text-center text-slate-500">Loading standings…</p>
+  if (racesLoading) return <LoadingScreen message="Loading standings…" />
 
   if (players.length === 0) {
     return <EmptyState icon="🏆" title="No players yet" subtitle="Add players from the profile picker to start a season." />

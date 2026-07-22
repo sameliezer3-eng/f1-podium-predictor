@@ -1,12 +1,14 @@
 import { useEffect, useState } from 'react'
 import DriverSelect from '../ui/DriverSelect'
 import { upsertPrediction } from '../../firebase/api'
+import { useRestoreStatus } from '../../hooks/useAppData'
 
 export default function PredictionForm({ race, player, drivers, existingPrediction, scoringSettings }) {
   const [picks, setPicks] = useState({ p1: null, p2: null, p3: null, pole: null, fastestLap: null })
   const [saving, setSaving] = useState(false)
   const [savedAt, setSavedAt] = useState(null)
   const [error, setError] = useState(null)
+  const restoreInProgress = useRestoreStatus()
 
   useEffect(() => {
     if (existingPrediction) {
@@ -98,10 +100,16 @@ export default function PredictionForm({ race, player, drivers, existingPredicti
         </div>
       )}
 
+      {restoreInProgress && (
+        <p className="rounded-lg border border-race-gold/30 bg-race-gold/10 px-3 py-2 text-sm text-race-gold">
+          Data is being restored — try again in a moment.
+        </p>
+      )}
+
       <div className="flex items-center gap-3">
         <button
           type="submit"
-          disabled={!complete || saving || !dirty}
+          disabled={!complete || saving || !dirty || restoreInProgress}
           className="rounded-lg bg-race-red px-5 py-2.5 text-sm font-bold uppercase tracking-wide text-white transition hover:bg-red-600 disabled:cursor-not-allowed disabled:opacity-40"
         >
           {saving ? 'Saving…' : existingPrediction ? 'Update pick' : 'Submit pick'}

@@ -17,6 +17,7 @@ import SubmissionStatus from '../components/race/SubmissionStatus'
 import PredictionsGrid from '../components/race/PredictionsGrid'
 import RacePodiumMini from '../components/scoreboard/RacePodiumMini'
 import EmptyState from '../components/ui/EmptyState'
+import LoadingScreen from '../components/ui/LoadingScreen'
 
 export default function RacePage() {
   const { raceId } = useParams()
@@ -33,7 +34,7 @@ export default function RacePage() {
 
   const driversById = useMemo(() => new Map(drivers.map((d) => [d.id, d])), [drivers])
 
-  if (loading) return <p className="py-16 text-center text-slate-500">Loading race…</p>
+  if (loading) return <LoadingScreen message="Loading race…" />
   if (!race) {
     return <EmptyState icon="🚧" title="Can't find that race" subtitle="It may have been removed from the calendar." />
   }

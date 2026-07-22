@@ -3,6 +3,7 @@ import { NavLink } from 'react-router-dom'
 import { usePlayerContext } from '../../context/PlayerContext'
 import Avatar from '../ui/Avatar'
 import Modal from '../ui/Modal'
+import Fam1Logo from '../ui/Fam1Logo'
 import PlayerSwitcher from '../players/PlayerSwitcher'
 
 const BASE_LINKS = [
@@ -22,12 +23,9 @@ export default function NavBar() {
     <>
       <header className="sticky top-0 z-40 border-b border-track-700 bg-track-950/90 backdrop-blur">
         <div className="mx-auto flex max-w-5xl items-center justify-between gap-3 px-4 py-3">
-          <div className="flex items-center gap-2">
-            <span className="checkered-bg h-6 w-6 rounded-sm border border-track-600" />
-            <span className="font-display text-lg font-black tracking-tight text-slate-50">
-              Paddock <span className="text-race-red">Predictor</span>
-            </span>
-          </div>
+          <NavLink to="/" className="flex items-center text-slate-50">
+            <Fam1Logo variant="wordmark" className="h-6 w-auto sm:h-7" />
+          </NavLink>
 
           <nav className="hidden items-center gap-1 sm:flex">
             {links.map((link) => (

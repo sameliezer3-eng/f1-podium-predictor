@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import confetti from 'canvas-confetti'
 import Avatar from '../ui/Avatar'
+import Fam1Logo from '../ui/Fam1Logo'
 
 const STEP_STYLE = {
   1: { order: 'order-2', height: 'h-40 sm:h-48', ring: 'ring-race-gold', label: 'bg-race-gold text-track-950', badge: '🥇' },
@@ -36,6 +37,10 @@ export default function Podium({ standings, unit = 'pts' }) {
   return (
     <div className="relative overflow-hidden rounded-2xl border border-track-700 bg-gradient-to-b from-track-900 to-track-950 px-4 pb-0 pt-8">
       <div className="checkered-bg pointer-events-none absolute inset-x-0 top-0 h-10 opacity-10" />
+      <Fam1Logo
+        variant="mark"
+        className="pointer-events-none absolute right-4 top-4 h-8 w-8 opacity-20 sm:h-10 sm:w-10"
+      />
 
       <div className="flex items-end justify-center gap-3 sm:gap-6">
         {top3.map((entry) => {

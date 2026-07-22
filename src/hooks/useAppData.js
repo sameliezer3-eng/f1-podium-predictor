@@ -21,6 +21,12 @@ export function useScoringSettings() {
   return { data: data ?? DEFAULT_SCORING, loading, error }
 }
 
+/** Live "is a restore currently running" flag — see restoreDatabaseSnapshot in api.js. */
+export function useRestoreStatus() {
+  const { data } = useDocument('settings', 'restoreStatus')
+  return data?.restoreInProgress ?? false
+}
+
 /**
  * A single player's own prediction for a race. Reading it by its
  * deterministic doc ID (rather than a `where` query) means Firestore

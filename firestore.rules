@@ -86,11 +86,15 @@ service cloud.firestore {
 
     match /players/{playerId} {
       allow read: if true;
-      // isAdmin must be explicitly false at creation — nobody grants
-      // themselves admin by signing up. It's only ever flipped to true by
-      // hand in the Firebase console (see the "manually set isAdmin" step
-      // in the brief), never through a client write.
-      allow create: if signedIn() && request.resource.data.isAdmin == false;
+      // isAdmin must be explicitly false at creation for an ordinary
+      // sign-up — nobody grants themselves admin by adding a player. The
+      // `|| isAdmin()` bypass exists only for database restore, which
+      // deletes and recreates every player doc from a backup (see
+      // restoreDatabaseSnapshot); without it, restoring a player who *was*
+      // an admin would be permanently blocked. isAdmin is still never
+      // settable through a normal update (see below) — this bypass only
+      // applies to a fresh create, run by an admin, from trusted export data.
+      allow create: if signedIn() && (request.resource.data.isAdmin == false || isAdmin());
       allow update: if signedIn() &&
         !request.resource.data.diff(resource.data).affectedKeys().hasAny(['isAdmin']) &&
         (isOwnPlayerDoc(playerId) || isAdmin() || isClaimingPasscode());
@@ -116,28 +120,42 @@ service cloud.firestore {
     // predictions. (The /sessions mechanism added for isAdmin() could tighten
     // this the same way admin writes are tightened now — deliberately left
     // out here to keep this change scoped to the admin role.)
+    //
+    // isAdmin() is threaded through every clause here for three admin
+    // features that all need it: deleting a player cascades into deleting
+    // (and first reading, to find) all of their predictions; restoring a
+    // backup deletes and recreates the whole collection; and overriding a
+    // player's pick works on any race, locked or not, and even creates the
+    // doc fresh if that player never predicted at all.
     match /predictions/{predictionId} {
       allow read: if signedIn() && (
         resource.data.authUid == request.auth.uid ||
-        isRaceLocked(resource.data.raceId)
+        isRaceLocked(resource.data.raceId) ||
+        isAdmin()
       );
 
-      allow create: if signedIn() &&
-        request.resource.data.authUid == request.auth.uid &&
-        request.resource.data.raceId is string &&
-        request.resource.data.playerId is string;
+      allow create: if signedIn() && (
+        (request.resource.data.authUid == request.auth.uid &&
+          request.resource.data.raceId is string &&
+          request.resource.data.playerId is string) ||
+        isAdmin()
+      );
 
       // Before lock: only the author can edit their own pick.
       // After lock: any signed-in session may write (this is how the admin
       // results screen posts computed points back onto each prediction).
+      // isAdmin() covers overriding a pick that's still open (not yet
+      // locked) for someone other than the acting admin themselves.
       allow update: if signedIn() && (
         (resource.data.authUid == request.auth.uid && !isRaceLocked(resource.data.raceId)) ||
-        isRaceLocked(resource.data.raceId)
+        isRaceLocked(resource.data.raceId) ||
+        isAdmin()
       );
 
-      allow delete: if signedIn() &&
-        resource.data.authUid == request.auth.uid &&
-        !isRaceLocked(resource.data.raceId);
+      allow delete: if signedIn() && (
+        (resource.data.authUid == request.auth.uid && !isRaceLocked(resource.data.raceId)) ||
+        isAdmin()
+      );
     }
   }
 }

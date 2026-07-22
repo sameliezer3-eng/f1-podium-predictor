@@ -5,6 +5,7 @@ import { usePlayerContext } from '../context/PlayerContext'
 import { nextUpcomingRace, formatDateRange } from '../lib/raceStatus'
 import RaceCard from '../components/race/RaceCard'
 import EmptyState from '../components/ui/EmptyState'
+import LoadingScreen from '../components/ui/LoadingScreen'
 
 export default function HomePage() {
   const { data: races, loading } = useRaces()
@@ -23,7 +24,7 @@ export default function HomePage() {
     return map
   }, [submissions])
 
-  if (loading) return <p className="py-16 text-center text-slate-500">Loading the calendar…</p>
+  if (loading) return <LoadingScreen message="Loading the calendar…" />
 
   if (races.length === 0) {
     return (

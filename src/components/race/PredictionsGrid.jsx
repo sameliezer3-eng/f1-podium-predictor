@@ -40,6 +40,14 @@ export default function PredictionsGrid({ players, predictions, driversById, res
                   <div className="flex items-center gap-2">
                     <Avatar player={player} size="sm" />
                     <span className="font-medium text-slate-100">{player.name}</span>
+                    {pred?.adminOverride && (
+                      <span
+                        className="rounded bg-race-gold/15 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-race-gold"
+                        title="This pick was set directly by an admin, not the player."
+                      >
+                        Edited by admin
+                      </span>
+                    )}
                   </div>
                 </td>
                 {rows.map((r) => {
