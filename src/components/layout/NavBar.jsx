@@ -22,12 +22,20 @@ export default function NavBar() {
   return (
     <>
       <header className="sticky top-0 z-40 border-b border-track-700 bg-track-950/90 backdrop-blur">
-        <div className="mx-auto flex max-w-5xl items-center justify-between gap-3 px-4 py-2.5">
-          <NavLink to="/" className="flex shrink-0 items-center text-slate-50">
-            <Fam1Logo className="h-14 w-auto sm:h-16" />
+        <div className="mx-auto flex max-w-5xl items-end justify-between gap-3 px-4 py-2.5">
+          <NavLink to="/" className="flex shrink-0 items-end text-slate-50">
+            {/* The SVG's viewBox carries a lot of built-in padding around the
+                letterforms (room for the drop-shadow extrusion), so the
+                visible "Fam1" glyphs only fill roughly a third of the
+                rendered box height — sized well past the player-button's
+                own height to compensate, not because the box itself should
+                be that tall. Bottom-aligned with the player button via the
+                parent row's items-end, rather than the default center
+                alignment, so the two sit on the same baseline. */}
+            <Fam1Logo className="h-24 w-auto sm:h-28" />
           </NavLink>
 
-          <nav className="hidden items-center gap-1 sm:flex">
+          <nav className="hidden items-end gap-1 sm:flex">
             {links.map((link) => (
               <NavLink
                 key={link.to}

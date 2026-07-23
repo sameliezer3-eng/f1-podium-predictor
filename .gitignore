@@ -22,6 +22,10 @@ firebase-debug.log
 firestore-debug.log
 ui-debug.log
 
+# Local safety-net backups (contain hashed passcodes — same sensitivity
+# level as a full data export, shouldn't be committed)
+/backups/
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json
@@ -32,3 +36,9 @@ ui-debug.log
 *.njsproj
 *.sln
 *.sw?
+
+
+node_modules/
+.env
+emulator-data/
+dist/
