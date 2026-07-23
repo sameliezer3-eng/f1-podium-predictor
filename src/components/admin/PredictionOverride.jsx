@@ -51,7 +51,12 @@ export default function PredictionOverride({ players, races, drivers, scoringSet
 
   const podiumIds = [picks.p1, picks.p2, picks.p3].filter(Boolean)
   const sprintPodiumIds = [picks.sprintP1, picks.sprintP2, picks.sprintP3].filter(Boolean)
-  const complete = picks.p1 && picks.p2 && picks.p3
+  // Saveable in two states: a normal complete pick, or a deliberate full
+  // clear back to "Select driver..." on all three — a mixed/partial state
+  // (e.g. two filled, one empty) is neither and stays disabled.
+  const allFilled = picks.p1 && picks.p2 && picks.p3
+  const allCleared = !picks.p1 && !picks.p2 && !picks.p3
+  const complete = allFilled || allCleared
 
   const handleSave = async (e) => {
     e.preventDefault()
