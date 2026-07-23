@@ -38,8 +38,7 @@ export default function Podium({ standings, unit = 'pts' }) {
     <div className="relative overflow-hidden rounded-2xl border border-track-700 bg-gradient-to-b from-track-900 to-track-950 px-4 pb-0 pt-8">
       <div className="checkered-bg pointer-events-none absolute inset-x-0 top-0 h-10 opacity-10" />
       <Fam1Logo
-        variant="mark"
-        className="pointer-events-none absolute right-4 top-4 h-8 w-8 opacity-20 sm:h-10 sm:w-10"
+        className="pointer-events-none absolute right-4 top-4 h-10 w-auto opacity-25 sm:h-12"
       />
 
       <div className="flex items-end justify-center gap-3 sm:gap-6">

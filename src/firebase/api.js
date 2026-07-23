@@ -112,7 +112,19 @@ export function predictionId(raceId, playerId) {
   return `${raceId}_${playerId}`
 }
 
-export async function upsertPrediction({ raceId, playerId, p1, p2, p3, pole, fastestLap }) {
+export async function upsertPrediction({
+  raceId,
+  playerId,
+  p1,
+  p2,
+  p3,
+  pole,
+  fastestLap,
+  sprintP1,
+  sprintP2,
+  sprintP3,
+  isSprint,
+}) {
   await authReady
   if (!auth?.currentUser) {
     throw new AuthUnavailableError()
@@ -140,6 +152,9 @@ export async function upsertPrediction({ raceId, playerId, p1, p2, p3, pole, fas
       p3: p3 || null,
       pole: pole || null,
       fastestLap: fastestLap || null,
+      sprintPredictedP1: sprintP1 || null,
+      sprintPredictedP2: sprintP2 || null,
+      sprintPredictedP3: sprintP3 || null,
       submittedAt: serverTimestamp(),
     },
     { merge: true },
@@ -149,7 +164,12 @@ export async function upsertPrediction({ raceId, playerId, p1, p2, p3, pole, fas
   // readable before the race locks (unlike the prediction doc above, which
   // security rules hide from other players until then). This is what powers
   // the "who's still out" status without leaking anyone's actual picks.
-  const complete = Boolean(p1 && p2 && p3)
+  // On a sprint weekend, "finished" means both podiums are filled in — both
+  // lock at the same moment (see the sprint-locking note in PredictionForm),
+  // so there's no benefit to treating them as separately "submitted".
+  const mainComplete = Boolean(p1 && p2 && p3)
+  const sprintComplete = Boolean(sprintP1 && sprintP2 && sprintP3)
+  const complete = mainComplete && (!isSprint || sprintComplete)
   const submissionRef = doc(db, 'races', raceId, 'submissions', playerId)
   if (complete) {
     await setDoc(submissionRef, { playerId, submittedAt: serverTimestamp() })
@@ -182,9 +202,31 @@ export async function setRaceLockAt(raceId, dateStringUTC) {
   })
 }
 
+// Reshapes a prediction/results pair from their sprint-prefixed field names
+// down to the plain {p1,p2,p3} shape scorePrediction already knows how to
+// score — same function, same rules, just fed the sprint slice of the data
+// instead of the main-race slice. No pole/fastest-lap for sprint (the brief
+// scopes sprint prediction to top-3 only), so bonusPicksEnabled naturally
+// has nothing to match against here.
+function toSprintShape(prediction, results) {
+  return {
+    prediction: { p1: prediction.sprintPredictedP1, p2: prediction.sprintPredictedP2, p3: prediction.sprintPredictedP3 },
+    results: { p1: results.sprintP1, p2: results.sprintP2, p3: results.sprintP3 },
+  }
+}
+
 /**
- * Admin action: write the actual P1/P2/P3 (+ optional pole/fastest lap) for
- * a race, then score every submitted prediction for that race in one batch.
+ * Admin action: write the actual results for a race — P1/P2/P3 (+ optional
+ * pole/fastest lap), and on a sprint weekend the sprint's own P1/P2/P3 too —
+ * then score every submitted prediction for that race in one batch.
+ *
+ * `results` is the *full* merged object (main + sprint fields together, as
+ * ResultsEntry's form always sends it, prefilled from whatever was already
+ * saved), not a partial patch. That's what lets an admin save just the
+ * sprint result on Saturday and the main result on Sunday without either
+ * save clobbering the other: only the halves that are actually complete get
+ * (re)scored, and a half left incomplete just doesn't touch that half's
+ * existing points/breakdown/scoredAt fields on each prediction.
  */
 export async function submitRaceResults(raceId, results, scoringSettings) {
   const predictionsSnap = await getDocs(query(collection(db, 'predictions'), where('raceId', '==', raceId)))
@@ -196,20 +238,31 @@ export async function submitRaceResults(raceId, results, scoringSettings) {
     resultsEnteredAt: serverTimestamp(),
   })
 
+  const mainComplete = Boolean(results.p1 && results.p2 && results.p3)
+  const sprintComplete = Boolean(results.sprintP1 && results.sprintP2 && results.sprintP3)
+
   for (const predDoc of predictionsSnap.docs) {
     const prediction = predDoc.data()
-    const { points, breakdown, correctPodiumCount, guessCount } = scorePrediction(
-      prediction,
-      results,
-      scoringSettings,
-    )
-    batch.update(predDoc.ref, {
-      points,
-      breakdown,
-      correctPodiumCount,
-      guessCount,
-      scoredAt: serverTimestamp(),
-    })
+    const update = {}
+
+    if (mainComplete) {
+      const { points, breakdown, correctPodiumCount, guessCount } = scorePrediction(prediction, results, scoringSettings)
+      Object.assign(update, { points, breakdown, correctPodiumCount, guessCount, scoredAt: serverTimestamp() })
+    }
+
+    if (sprintComplete) {
+      const { prediction: sprintPrediction, results: sprintResults } = toSprintShape(prediction, results)
+      const raw = scorePrediction(sprintPrediction, sprintResults, scoringSettings)
+      Object.assign(update, {
+        sprintPoints: raw.points * (scoringSettings.sprintPointsMultiplier ?? 0.5),
+        sprintBreakdown: raw.breakdown,
+        sprintCorrectPodiumCount: raw.correctPodiumCount,
+        sprintGuessCount: raw.guessCount,
+        sprintScoredAt: serverTimestamp(),
+      })
+    }
+
+    if (Object.keys(update).length > 0) batch.update(predDoc.ref, update)
   }
 
   await batch.commit()
@@ -234,6 +287,9 @@ export async function adminOverridePrediction({
   p3,
   pole,
   fastestLap,
+  sprintP1,
+  sprintP2,
+  sprintP3,
   raceResults,
   scoringSettings,
 }) {
@@ -251,6 +307,9 @@ export async function adminOverridePrediction({
     p3: p3 || null,
     pole: pole || null,
     fastestLap: fastestLap || null,
+    sprintPredictedP1: sprintP1 || null,
+    sprintPredictedP2: sprintP2 || null,
+    sprintPredictedP3: sprintP3 || null,
   }
 
   if (existing.exists()) {
@@ -271,13 +330,32 @@ export async function adminOverridePrediction({
   // *this* write fails, the override itself still took effect, just without
   // updated points. Tagged with `.phase` so the caller (PredictionOverride)
   // can say so specifically instead of a blanket "failed to save" that would
-  // wrongly imply the pick change itself didn't go through.
-  if (raceResults) {
+  // wrongly imply the pick change itself didn't go through. Main and sprint
+  // rescore independently (either can fail without blocking the other) since
+  // whichever one throws first still needs to say which one it was.
+  if (raceResults?.p1 && raceResults?.p2 && raceResults?.p3) {
     try {
       const { points, breakdown, correctPodiumCount, guessCount } = scorePrediction(picks, raceResults, scoringSettings)
       await updateDoc(ref, { points, breakdown, correctPodiumCount, guessCount, scoredAt: serverTimestamp() })
     } catch (err) {
       err.phase = 'rescore'
+      throw err
+    }
+  }
+
+  if (raceResults?.sprintP1 && raceResults?.sprintP2 && raceResults?.sprintP3) {
+    try {
+      const { prediction: sprintPrediction, results: sprintResults } = toSprintShape(picks, raceResults)
+      const raw = scorePrediction(sprintPrediction, sprintResults, scoringSettings)
+      await updateDoc(ref, {
+        sprintPoints: raw.points * (scoringSettings.sprintPointsMultiplier ?? 0.5),
+        sprintBreakdown: raw.breakdown,
+        sprintCorrectPodiumCount: raw.correctPodiumCount,
+        sprintGuessCount: raw.guessCount,
+        sprintScoredAt: serverTimestamp(),
+      })
+    } catch (err) {
+      err.phase = 'sprint-rescore'
       throw err
     }
   }
@@ -294,6 +372,11 @@ export async function clearRaceResults(raceId) {
       correctPodiumCount: null,
       guessCount: null,
       scoredAt: null,
+      sprintPoints: null,
+      sprintBreakdown: null,
+      sprintCorrectPodiumCount: null,
+      sprintGuessCount: null,
+      sprintScoredAt: null,
     })
   }
   await batch.commit()

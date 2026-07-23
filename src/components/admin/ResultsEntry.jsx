@@ -4,10 +4,12 @@ import Modal from '../ui/Modal'
 import { clearRaceResults, submitRaceResults } from '../../firebase/api'
 import { getRaceStatus } from '../../lib/raceStatus'
 
+const EMPTY_FORM = { p1: null, p2: null, p3: null, pole: null, fastestLap: null, sprintP1: null, sprintP2: null, sprintP3: null }
+
 export default function ResultsEntry({ races, drivers, scoringSettings }) {
   const eligible = races.filter((r) => getRaceStatus(r) !== 'open')
   const [raceId, setRaceId] = useState('')
-  const [form, setForm] = useState({ p1: null, p2: null, p3: null, pole: null, fastestLap: null })
+  const [form, setForm] = useState(EMPTY_FORM)
   const [status, setStatus] = useState('idle')
   const [confirmingClear, setConfirmingClear] = useState(false)
   const [clearing, setClearing] = useState(false)
@@ -16,21 +18,27 @@ export default function ResultsEntry({ races, drivers, scoringSettings }) {
   const race = races.find((r) => r.id === raceId)
 
   useEffect(() => {
-    if (race?.results) {
-      setForm({
-        p1: race.results.p1 || null,
-        p2: race.results.p2 || null,
-        p3: race.results.p3 || null,
-        pole: race.results.pole || null,
-        fastestLap: race.results.fastestLap || null,
-      })
-    } else {
-      setForm({ p1: null, p2: null, p3: null, pole: null, fastestLap: null })
-    }
+    setForm({
+      p1: race?.results?.p1 || null,
+      p2: race?.results?.p2 || null,
+      p3: race?.results?.p3 || null,
+      pole: race?.results?.pole || null,
+      fastestLap: race?.results?.fastestLap || null,
+      sprintP1: race?.results?.sprintP1 || null,
+      sprintP2: race?.results?.sprintP2 || null,
+      sprintP3: race?.results?.sprintP3 || null,
+    })
   }, [raceId]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const podiumIds = [form.p1, form.p2, form.p3].filter(Boolean)
-  const complete = form.p1 && form.p2 && form.p3
+  const sprintPodiumIds = [form.sprintP1, form.sprintP2, form.sprintP3].filter(Boolean)
+  const mainComplete = Boolean(form.p1 && form.p2 && form.p3)
+  const sprintComplete = Boolean(form.sprintP1 && form.sprintP2 && form.sprintP3)
+  // Sprint happens Saturday, the Grand Prix Sunday — an admin filling this in
+  // right after the sprint won't have main results yet. Either half being
+  // complete is enough to save (see submitRaceResults: whichever half isn't
+  // complete just doesn't get (re)scored, the other's untouched).
+  const complete = mainComplete || (race?.sprint && sprintComplete)
 
   const handleSubmit = async (e) => {
     e.preventDefault()
@@ -50,7 +58,7 @@ export default function ResultsEntry({ races, drivers, scoringSettings }) {
     setClearError(null)
     try {
       await clearRaceResults(raceId)
-      setForm({ p1: null, p2: null, p3: null, pole: null, fastestLap: null })
+      setForm(EMPTY_FORM)
       setStatus('Cleared.')
       setConfirmingClear(false)
     } catch (err) {
@@ -87,18 +95,40 @@ export default function ResultsEntry({ races, drivers, scoringSettings }) {
 
       {race && (
         <form onSubmit={handleSubmit} className="flex flex-col gap-4 rounded-xl border border-track-700 bg-track-950 p-4">
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-            {['p1', 'p2', 'p3'].map((slot, i) => (
-              <DriverSelect
-                key={slot}
-                drivers={drivers}
-                label={`P${i + 1}`}
-                value={form[slot]}
-                excludeIds={podiumIds.filter((id) => id !== form[slot])}
-                onChange={(v) => setForm((f) => ({ ...f, [slot]: v }))}
-              />
-            ))}
+          {race.sprint && (
+            <div className="flex flex-col gap-3 rounded-lg border border-track-700 bg-track-900 p-3">
+              <span className="text-xs font-semibold uppercase tracking-wide text-race-gold">Sprint result</span>
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+                {['sprintP1', 'sprintP2', 'sprintP3'].map((slot, i) => (
+                  <DriverSelect
+                    key={slot}
+                    drivers={drivers}
+                    label={`Sprint P${i + 1}`}
+                    value={form[slot]}
+                    excludeIds={sprintPodiumIds.filter((id) => id !== form[slot])}
+                    onChange={(v) => setForm((f) => ({ ...f, [slot]: v }))}
+                  />
+                ))}
+              </div>
+            </div>
+          )}
+
+          <div className="flex flex-col gap-3">
+            {race.sprint && <span className="text-xs font-semibold uppercase tracking-wide text-slate-400">Grand Prix result</span>}
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+              {['p1', 'p2', 'p3'].map((slot, i) => (
+                <DriverSelect
+                  key={slot}
+                  drivers={drivers}
+                  label={`P${i + 1}`}
+                  value={form[slot]}
+                  excludeIds={podiumIds.filter((id) => id !== form[slot])}
+                  onChange={(v) => setForm((f) => ({ ...f, [slot]: v }))}
+                />
+              ))}
+            </div>
           </div>
+
           {scoringSettings.bonusPicksEnabled && (
             <div className="grid grid-cols-1 gap-3 border-t border-track-700 pt-4 sm:grid-cols-2">
               <DriverSelect
@@ -145,9 +175,10 @@ export default function ResultsEntry({ races, drivers, scoringSettings }) {
         <Modal title="Clear results" onClose={() => !clearing && setConfirmingClear(false)}>
           <div className="flex flex-col gap-4">
             <p className="text-sm text-slate-300">
-              Clear the results for <strong>{race?.name}</strong> and un-score every prediction for this race? Players
-              keep their picks — only the actual result and everyone's points are removed. You can re-enter results
-              later to re-score.
+              Clear the results for <strong>{race?.name}</strong> and un-score every prediction for this race
+              {race?.sprint ? ' — sprint and Grand Prix both' : ''}? Players keep their picks — only the actual
+              result{race?.sprint ? 's' : ''} and everyone's points are removed. You can re-enter results later to
+              re-score.
             </p>
             {clearError && (
               <p className="rounded-lg border border-race-red/30 bg-race-red/10 px-3 py-2 text-sm text-race-red">

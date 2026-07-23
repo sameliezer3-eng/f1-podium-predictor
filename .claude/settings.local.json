@@ -3,7 +3,9 @@
     "allow": [
       "Bash(node test-reset.mjs)",
       "Bash(node test-override-locked.mjs)",
-      "Bash(node test-session-heal.mjs)"
+      "Bash(node test-session-heal.mjs)",
+      "Bash(lsof -ti:8080,9099 -sTCP:LISTEN)",
+      "Bash(lsof -ti:5173,5199 -sTCP:LISTEN)"
     ]
   }
 }

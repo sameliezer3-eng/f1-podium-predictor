@@ -54,6 +54,14 @@ export function scorePrediction(prediction, results, settings) {
  * the podium, out of every guess made across scored races). Expects each
  * prediction to already carry the `points`/`correctPodiumCount`/`guessCount`
  * fields written by scorePrediction at result-entry time.
+ *
+ * On sprint weekends a prediction doc also carries `sprintPoints` (already
+ * multiplied by `sprintPointsMultiplier` at scoring time — see
+ * submitRaceResults) plus its own `sprintCorrectPodiumCount`/
+ * `sprintGuessCount`. Both halves fold into the same season totals and the
+ * same accuracy figure here: a prediction only needs *either* half scored to
+ * count toward `racesScored`, since sprint and main-race results can land on
+ * different days and one is often entered before the other.
  */
 export function aggregatePlayerStats(scoredPredictions) {
   let totalPoints = 0
@@ -63,12 +71,16 @@ export function aggregatePlayerStats(scoredPredictions) {
   let racesScored = 0
 
   for (const p of scoredPredictions) {
-    if (typeof p.points !== 'number') continue
+    const mainScored = typeof p.points === 'number'
+    const sprintScored = typeof p.sprintPoints === 'number'
+    if (!mainScored && !sprintScored) continue
+
     racesScored += 1
-    totalPoints += p.points
-    guessesMade += p.guessCount || 0
-    guessesOnPodium += p.correctPodiumCount || 0
+    totalPoints += (p.points || 0) + (p.sprintPoints || 0)
+    guessesMade += (p.guessCount || 0) + (p.sprintGuessCount || 0)
+    guessesOnPodium += (p.correctPodiumCount || 0) + (p.sprintCorrectPodiumCount || 0)
     if (p.breakdown?.some((b) => b.reason === 'winner')) winnersCalled += 1
+    if (p.sprintBreakdown?.some((b) => b.reason === 'winner')) winnersCalled += 1
   }
 
   const accuracy = guessesMade > 0 ? Math.round((guessesOnPodium / guessesMade) * 100) : null

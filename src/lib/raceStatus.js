@@ -6,6 +6,13 @@ export function toDate(value) {
   return new Date(value)
 }
 
+// Known simplification for sprint weekends: `lockAt` is a single timestamp
+// per race (weekend start), so the sprint prediction and the Grand Prix
+// prediction both lock at that same moment — even though the real sprint
+// (Saturday) and the real race (Sunday) happen on different days. A more
+// realistic version would lock the sprint prediction separately, earlier
+// than the main race, but that needs a second per-race date field the data
+// model doesn't have; out of scope for making sprint scoring functional.
 export function isRaceLocked(race, now = new Date()) {
   const lockAt = toDate(race.lockAt)
   return lockAt ? now >= lockAt : false

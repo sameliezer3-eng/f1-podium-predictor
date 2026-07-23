@@ -5,7 +5,7 @@ import { adminOverridePrediction, predictionId } from '../../firebase/api'
 import DriverSelect from '../ui/DriverSelect'
 import { toDate } from '../../lib/raceStatus'
 
-const EMPTY_PICKS = { p1: null, p2: null, p3: null, pole: null, fastestLap: null }
+const EMPTY_PICKS = { p1: null, p2: null, p3: null, pole: null, fastestLap: null, sprintP1: null, sprintP2: null, sprintP3: null }
 
 export default function PredictionOverride({ players, races, drivers, scoringSettings }) {
   const [playerId, setPlayerId] = useState('')
@@ -37,6 +37,9 @@ export default function PredictionOverride({ players, races, drivers, scoringSet
             p3: data.p3 || null,
             pole: data.pole || null,
             fastestLap: data.fastestLap || null,
+            sprintP1: data.sprintPredictedP1 || null,
+            sprintP2: data.sprintPredictedP2 || null,
+            sprintP3: data.sprintPredictedP3 || null,
           })
         } else {
           setExisting(null)
@@ -47,6 +50,7 @@ export default function PredictionOverride({ players, races, drivers, scoringSet
   }, [playerId, raceId])
 
   const podiumIds = [picks.p1, picks.p2, picks.p3].filter(Boolean)
+  const sprintPodiumIds = [picks.sprintP1, picks.sprintP2, picks.sprintP3].filter(Boolean)
   const complete = picks.p1 && picks.p2 && picks.p3
 
   const handleSave = async (e) => {
@@ -69,6 +73,8 @@ export default function PredictionOverride({ players, races, drivers, scoringSet
       console.error('Admin override failed:', err.name, err.code, err.message, err)
       if (err.phase === 'rescore') {
         setStatus('Pick saved, but re-scoring failed — try saving again to retry just the points.')
+      } else if (err.phase === 'sprint-rescore') {
+        setStatus('Pick saved, but sprint re-scoring failed — try saving again to retry just the sprint points.')
       } else if (err.code === 'permission-denied') {
         setStatus("Couldn't save — a permissions issue on our end, not yours.")
       } else {
@@ -130,18 +136,41 @@ export default function PredictionOverride({ players, races, drivers, scoringSet
                   updates the record and marker.
                 </p>
               )}
-              <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-                {['p1', 'p2', 'p3'].map((slot, i) => (
-                  <DriverSelect
-                    key={slot}
-                    drivers={drivers}
-                    label={`P${i + 1}`}
-                    value={picks[slot]}
-                    excludeIds={podiumIds.filter((id) => id !== picks[slot])}
-                    onChange={(v) => setPicks((p) => ({ ...p, [slot]: v }))}
-                  />
-                ))}
+
+              {race?.sprint && (
+                <div className="flex flex-col gap-3 rounded-lg border border-track-700 bg-track-900 p-3">
+                  <span className="text-xs font-semibold uppercase tracking-wide text-race-gold">Sprint pick</span>
+                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+                    {['sprintP1', 'sprintP2', 'sprintP3'].map((slot, i) => (
+                      <DriverSelect
+                        key={slot}
+                        drivers={drivers}
+                        label={`Sprint P${i + 1}`}
+                        value={picks[slot]}
+                        excludeIds={sprintPodiumIds.filter((id) => id !== picks[slot])}
+                        onChange={(v) => setPicks((p) => ({ ...p, [slot]: v }))}
+                      />
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              <div className="flex flex-col gap-3">
+                {race?.sprint && <span className="text-xs font-semibold uppercase tracking-wide text-slate-400">Grand Prix pick</span>}
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+                  {['p1', 'p2', 'p3'].map((slot, i) => (
+                    <DriverSelect
+                      key={slot}
+                      drivers={drivers}
+                      label={`P${i + 1}`}
+                      value={picks[slot]}
+                      excludeIds={podiumIds.filter((id) => id !== picks[slot])}
+                      onChange={(v) => setPicks((p) => ({ ...p, [slot]: v }))}
+                    />
+                  ))}
+                </div>
               </div>
+
               {scoringSettings.bonusPicksEnabled && (
                 <div className="grid grid-cols-1 gap-3 border-t border-track-700 pt-4 sm:grid-cols-2">
                   <DriverSelect

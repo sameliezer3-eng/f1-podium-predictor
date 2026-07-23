@@ -80,4 +80,9 @@ export const DEFAULT_SCORING = {
   bonusPicksEnabled: true,
   poleBonus: 2,
   fastestLapBonus: 2,
+  // Sprint predictions are scored with the exact same rules above (exact
+  // position, correct-podium-wrong-slot, winner bonus), then the whole
+  // result is scaled by this — matching how real F1 weights a sprint result
+  // below the Grand Prix itself.
+  sprintPointsMultiplier: 0.5,
 }

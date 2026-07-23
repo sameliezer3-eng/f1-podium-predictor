@@ -102,6 +102,7 @@ export default function RacePage() {
               driversById={driversById}
               results={race.results}
               bonusEnabled={scoringSettings.bonusPicksEnabled}
+              isSprint={race.sprint}
             />
           )}
         </section>

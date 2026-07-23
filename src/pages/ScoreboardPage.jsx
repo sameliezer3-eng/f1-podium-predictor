@@ -39,7 +39,8 @@ export default function ScoreboardPage() {
       const point = { label: `R${race.order}` }
       for (const player of players) {
         const pred = seasonPredictions.find((p) => p.raceId === race.id && p.playerId === player.id)
-        running.set(player.id, running.get(player.id) + (pred?.points || 0))
+        const raceTotal = (pred?.points || 0) + (pred?.sprintPoints || 0)
+        running.set(player.id, running.get(player.id) + raceTotal)
         point[player.id] = running.get(player.id)
       }
       return point
@@ -114,6 +115,7 @@ export default function ScoreboardPage() {
               driversById={driversById}
               results={selectedRace.results}
               bonusEnabled
+              isSprint={selectedRace.sprint}
             />
           </div>
         ) : (

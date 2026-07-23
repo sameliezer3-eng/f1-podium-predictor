@@ -72,6 +72,22 @@ export default function ScoringSettings({ settings }) {
         </div>
       )}
 
+      <label className="flex flex-col gap-1.5 rounded-xl border border-track-700 bg-track-900 p-4 sm:w-64">
+        <span className="text-sm font-semibold text-slate-100">Sprint points multiplier</span>
+        <span className="text-xs text-slate-500">
+          Sprint predictions are scored with the same rules above, then scaled by this — 0.5 means a sprint podium is
+          worth half a Grand Prix podium.
+        </span>
+        <input
+          type="number"
+          min={0}
+          step={0.1}
+          value={form.sprintPointsMultiplier}
+          onChange={(e) => setForm((s) => ({ ...s, sprintPointsMultiplier: Number(e.target.value) }))}
+          className="mt-1 w-24 rounded-lg border border-track-600 bg-track-800 px-3 py-2 text-sm text-slate-100 outline-none focus:border-race-red"
+        />
+      </label>
+
       <div className="flex items-center gap-3">
         <button
           type="submit"
