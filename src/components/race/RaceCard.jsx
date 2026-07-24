@@ -1,9 +1,12 @@
 import { Link } from 'react-router-dom'
-import { getRaceStatus, formatDateRange } from '../../lib/raceStatus'
+import { getRaceStatus, formatDateRange, toDate } from '../../lib/raceStatus'
+import { useLiveNow } from '../../hooks/useLiveNow'
 import StatusPill from './StatusPill'
+import LockCountdown from './LockCountdown'
 
 export default function RaceCard({ race, totalPlayers, submittedCount, hasSubmitted }) {
-  const status = getRaceStatus(race)
+  const now = useLiveNow(toDate(race.lockAt))
+  const status = getRaceStatus(race, now)
 
   return (
     <Link
@@ -35,6 +38,7 @@ export default function RaceCard({ race, totalPlayers, submittedCount, hasSubmit
             {hasSubmitted ? '✓ you\'re in' : status === 'locked' ? 'you missed it' : 'not predicted yet'}
           </span>
         )}
+        {status === 'open' && <LockCountdown lockAt={race.lockAt} now={now} compact />}
         {typeof submittedCount === 'number' && totalPlayers > 0 && status !== 'open' && (
           <span className="text-xs text-slate-500">{submittedCount}/{totalPlayers} predicted</span>
         )}

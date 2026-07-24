@@ -80,7 +80,7 @@ export default function PredictionsGrid({ players, predictions, driversById, res
                         key={r.key}
                         className={`px-3 py-3 ${cellStyle(guess, r.resultKey, results, ['sprintP1', 'sprintP2', 'sprintP3'])}`}
                       >
-                        {driver ? driver.name : <span className="text-slate-600">—</span>}
+                        {driver ? driver.code || driver.name : <span className="text-slate-600">—</span>}
                       </td>
                     )
                   })}
@@ -89,7 +89,7 @@ export default function PredictionsGrid({ players, predictions, driversById, res
                   const driver = guess ? driversById.get(guess) : null
                   return (
                     <td key={r.key} className={`px-3 py-3 ${cellStyle(guess, r.key, results, ['p1', 'p2', 'p3'])}`}>
-                      {driver ? driver.name : <span className="text-slate-600">—</span>}
+                      {driver ? driver.code || driver.name : <span className="text-slate-600">—</span>}
                     </td>
                   )
                 })}
@@ -98,7 +98,7 @@ export default function PredictionsGrid({ players, predictions, driversById, res
                   const driver = guess ? driversById.get(guess) : null
                   return (
                     <td key={r.key} className={`px-3 py-3 ${cellStyle(guess, r.key, results, [])}`}>
-                      {driver ? driver.name : <span className="text-slate-600">—</span>}
+                      {driver ? driver.code || driver.name : <span className="text-slate-600">—</span>}
                     </td>
                   )
                 })}

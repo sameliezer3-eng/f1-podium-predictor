@@ -18,7 +18,13 @@ function DriverRow({ driver }) {
     setSaving(true)
     setError(null)
     try {
-      await upsertDriver(driver.id, { name: form.name, team: form.team, teamColor: form.teamColor, active: form.active })
+      await upsertDriver(driver.id, {
+        name: form.name,
+        team: form.team,
+        teamColor: form.teamColor,
+        active: form.active,
+        code: form.code?.trim().toUpperCase() || null,
+      })
     } catch (err) {
       console.error('Driver save failed:', err.code, err.message, err)
       setError(err.code === 'permission-denied' ? "Couldn't save — permissions issue." : "Couldn't save — try again.")
@@ -39,7 +45,7 @@ function DriverRow({ driver }) {
   }
 
   return (
-    <div className="grid grid-cols-1 items-center gap-2 rounded-xl border border-track-700 bg-track-900 p-3 sm:grid-cols-[1fr_1fr_auto_auto_auto]">
+    <div className="grid grid-cols-1 items-center gap-2 rounded-xl border border-track-700 bg-track-900 p-3 sm:grid-cols-[1fr_1fr_5rem_auto_auto_auto]">
       <input
         value={form.name}
         onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
@@ -50,6 +56,14 @@ function DriverRow({ driver }) {
         list="team-names"
         onChange={(e) => handleTeamChange(e.target.value)}
         className="rounded-lg border border-track-600 bg-track-800 px-2.5 py-1.5 text-sm text-slate-100 outline-none focus:border-race-red"
+      />
+      <input
+        value={form.code || ''}
+        onChange={(e) => setForm((f) => ({ ...f, code: e.target.value.toUpperCase() }))}
+        placeholder="COD"
+        maxLength={3}
+        title="3-letter code used in the compact picks comparison"
+        className="rounded-lg border border-track-600 bg-track-800 px-2.5 py-1.5 text-center text-sm uppercase tracking-widest text-slate-100 outline-none focus:border-race-red"
       />
       <input
         type="color"
@@ -76,7 +90,7 @@ function DriverRow({ driver }) {
 }
 
 export default function DriverGridEditor({ drivers }) {
-  const [newDriver, setNewDriver] = useState({ name: '', team: TEAMS[0].name, teamColor: TEAMS[0].color })
+  const [newDriver, setNewDriver] = useState({ name: '', team: TEAMS[0].name, teamColor: TEAMS[0].color, code: '' })
   const [adding, setAdding] = useState(false)
   const [addError, setAddError] = useState(null)
 
@@ -86,8 +100,13 @@ export default function DriverGridEditor({ drivers }) {
     setAdding(true)
     setAddError(null)
     try {
-      await upsertDriver(null, { ...newDriver, name: newDriver.name.trim(), active: true })
-      setNewDriver({ name: '', team: TEAMS[0].name, teamColor: TEAMS[0].color })
+      await upsertDriver(null, {
+        ...newDriver,
+        name: newDriver.name.trim(),
+        code: newDriver.code.trim().toUpperCase() || null,
+        active: true,
+      })
+      setNewDriver({ name: '', team: TEAMS[0].name, teamColor: TEAMS[0].color, code: '' })
     } catch (err) {
       console.error('Add driver failed:', err.code, err.message, err)
       setAddError(err.code === 'permission-denied' ? "Couldn't add — permissions issue." : "Couldn't add — try again.")
@@ -128,6 +147,17 @@ export default function DriverGridEditor({ drivers }) {
               <option key={t.name} value={t.name}>{t.name}</option>
             ))}
           </select>
+        </label>
+        <label className="flex flex-col gap-1">
+          <span className="text-xs text-slate-500">Code</span>
+          <input
+            value={newDriver.code}
+            onChange={(e) => setNewDriver((d) => ({ ...d, code: e.target.value.toUpperCase() }))}
+            placeholder="COD"
+            maxLength={3}
+            title="3-letter code used in the compact picks comparison"
+            className="w-16 rounded-lg border border-track-600 bg-track-800 px-2.5 py-1.5 text-center text-sm uppercase tracking-widest text-slate-100 outline-none focus:border-race-red"
+          />
         </label>
         <button
           type="submit"

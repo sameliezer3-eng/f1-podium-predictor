@@ -1,9 +1,11 @@
-import { useMemo } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useRaces, usePlayers, useAllSubmissions } from '../hooks/useAppData'
 import { usePlayerContext } from '../context/PlayerContext'
-import { nextUpcomingRace, formatDateRange } from '../lib/raceStatus'
+import { nextUpcomingRace, formatDateRange, toDate } from '../lib/raceStatus'
+import { useLiveNow } from '../hooks/useLiveNow'
 import RaceCard from '../components/race/RaceCard'
+import LockCountdown from '../components/race/LockCountdown'
 import EmptyState from '../components/ui/EmptyState'
 import LoadingScreen from '../components/ui/LoadingScreen'
 
@@ -13,7 +15,19 @@ export default function HomePage() {
   const { data: submissions } = useAllSubmissions()
   const { activePlayerId, activePlayer } = usePlayerContext()
 
-  const upNext = useMemo(() => nextUpcomingRace(races), [races])
+  // `now` ticks relative to whichever race is *currently* featured as "up
+  // next" — fine-grained as that race's own lock approaches. Re-deriving
+  // "up next" as its own state (rather than a plain useMemo off races+now)
+  // means once that race locks and a *different* race becomes next, this
+  // effect swaps upNext, which changes useLiveNow's target, which restarts
+  // the fine-grained ticking around the new race's lockAt — without this,
+  // the countdown for whichever race replaces it would be stuck updating
+  // only as often as the now-locked original race needed.
+  const [upNext, setUpNext] = useState(() => nextUpcomingRace(races))
+  const now = useLiveNow(upNext ? toDate(upNext.lockAt) : null)
+  useEffect(() => {
+    setUpNext(nextUpcomingRace(races, now))
+  }, [races, now])
 
   const submittedByRace = useMemo(() => {
     const map = new Map()
@@ -47,6 +61,11 @@ export default function HomePage() {
             {upNext.circuit} · {formatDateRange(upNext.dateStart, upNext.dateEnd)}
             {upNext.sprint && <span className="ml-2 text-race-gold">Sprint weekend</span>}
           </p>
+          {!upNext.results && (
+            <div className="mt-2">
+              <LockCountdown lockAt={upNext.lockAt} now={now} />
+            </div>
+          )}
           <Link
             to={`/race/${upNext.id}`}
             className="mt-4 inline-flex rounded-lg bg-race-red px-4 py-2 text-sm font-bold uppercase tracking-wide text-white transition hover:bg-red-600"

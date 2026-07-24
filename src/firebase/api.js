@@ -205,6 +205,58 @@ export async function upsertPrediction({
   }
 }
 
+// Marks this player's own pick as "revealed" — the moment they choose to
+// view everyone else's picks before the race has actually locked. Security
+// rules (see firestore.rules) then treat this exactly like a real lock for
+// this one prediction: no further edits, from anyone but an admin, even
+// though the race itself is still open. Not actually one-way — an admin can
+// undo it, see resetRevealLock/resetAllRevealLocks below.
+export async function revealPrediction(raceId, playerId) {
+  await updateDoc(doc(db, 'predictions', predictionId(raceId, playerId)), {
+    revealedAt: serverTimestamp(),
+  })
+}
+
+// Admin action: undoes the reveal-lock from revealPrediction for one
+// player's prediction on one race. Only clears the reveal state — their
+// actual p1/p2/p3 pick is left untouched, so they can go back and edit the
+// pick they already made rather than starting over. Doesn't touch the
+// race's real lockAt: if the race has genuinely locked, the update rule's
+// isRaceLocked() clause still blocks their next edit regardless of this —
+// this only undoes the early "you peeked" lock, not real lock enforcement.
+// Stamped the same way adminOverridePrediction stamps its writes (a flag +
+// timestamp, not a specific admin identity) — RacePage surfaces this to the
+// affected player directly so a reset isn't a silent, invisible edit.
+export async function resetRevealLock(raceId, playerId) {
+  await updateDoc(doc(db, 'predictions', predictionId(raceId, playerId)), {
+    revealedAt: null,
+    revealLockReset: true,
+    revealLockResetAt: serverTimestamp(),
+  })
+}
+
+// Same reset, batched across every player who has actually revealed for
+// this race — a whole-race do-over. Returns how many predictions were
+// touched (for the confirming admin's own feedback, not the count shown in
+// the confirmation modal itself — that's a separate read the UI does before
+// the admin ever commits to the action).
+export async function resetAllRevealLocks(raceId) {
+  const predictionsSnap = await getDocs(query(collection(db, 'predictions'), where('raceId', '==', raceId)))
+  const revealed = predictionsSnap.docs.filter((d) => d.data().revealedAt)
+  if (revealed.length === 0) return 0
+
+  const batch = writeBatch(db)
+  for (const predDoc of revealed) {
+    batch.update(predDoc.ref, {
+      revealedAt: null,
+      revealLockReset: true,
+      revealLockResetAt: serverTimestamp(),
+    })
+  }
+  await batch.commit()
+  return revealed.length
+}
+
 // ---- Drivers (grid editing) -------------------------------------------------
 
 export async function upsertDriver(driverId, data) {

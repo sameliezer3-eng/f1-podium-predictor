@@ -48,3 +48,38 @@ export function nextUpcomingRace(races, now = new Date()) {
     .filter((r) => !isRaceLocked(r, now))
     .sort((a, b) => toDate(a.dateStart) - toDate(b.dateStart))[0]
 }
+
+// Adaptive granularity so it stays readable at any distance from lock —
+// days+hours far out, hours+minutes under a day, minutes+seconds under an
+// hour (where useLiveNow is also ticking every second, so this is live).
+// `msRemaining` is a plain duration (lockAt - now), not a wall-clock time,
+// so no timezone handling belongs here at all — see formatLocalLockTime for
+// the one place that actually needs the viewer's timezone.
+export function formatCountdown(msRemaining) {
+  if (msRemaining == null || msRemaining <= 0) return null
+  const totalSeconds = Math.floor(msRemaining / 1000)
+  const days = Math.floor(totalSeconds / 86400)
+  const hours = Math.floor((totalSeconds % 86400) / 3600)
+  const minutes = Math.floor((totalSeconds % 3600) / 60)
+  const seconds = totalSeconds % 60
+  if (days >= 1) return `${days}d ${hours}h`
+  if (hours >= 1) return `${hours}h ${minutes}m`
+  return `${minutes}m ${seconds}s`
+}
+
+// The actual lock moment, in whoever's looking at it own timezone — unlike
+// formatDateRange above (which deliberately pins to UTC so a date-only
+// range reads the same for everyone), lockAt is a real instant, so this
+// intentionally leaves `timeZone` unset and lets toLocaleString fall back
+// to the browser's local zone.
+export function formatLocalLockTime(lockAtValue) {
+  const lockAt = toDate(lockAtValue)
+  if (!lockAt) return ''
+  return lockAt.toLocaleString('en-US', {
+    weekday: 'short',
+    month: 'short',
+    day: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+  })
+}

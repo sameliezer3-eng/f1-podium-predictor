@@ -8,6 +8,7 @@ import DriverGridEditor from '../components/admin/DriverGridEditor'
 import RaceCalendarEditor from '../components/admin/RaceCalendarEditor'
 import PlayerPasscodeManager from '../components/admin/PlayerPasscodeManager'
 import PredictionOverride from '../components/admin/PredictionOverride'
+import RevealLockReset from '../components/admin/RevealLockReset'
 import DatabaseBackup from '../components/admin/DatabaseBackup'
 
 const TABS = [
@@ -17,6 +18,7 @@ const TABS = [
   { key: 'calendar', label: 'Calendar' },
   { key: 'players', label: 'Players' },
   { key: 'override', label: 'Override' },
+  { key: 'reveal-lock', label: 'Reveal lock' },
   { key: 'backup', label: 'Backup' },
 ]
 
@@ -71,6 +73,7 @@ export default function AdminPage() {
       {tab === 'override' && (
         <PredictionOverride players={players} races={races} drivers={drivers} scoringSettings={scoringSettings} />
       )}
+      {tab === 'reveal-lock' && <RevealLockReset players={players} races={races} />}
       {tab === 'backup' && <DatabaseBackup />}
     </div>
   )

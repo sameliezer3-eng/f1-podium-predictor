@@ -18,7 +18,47 @@ function shapeFromPrediction(prediction) {
   }
 }
 
-export default function PredictionForm({ race, player, drivers, existingPrediction, scoringSettings }) {
+// Shown instead of the editable form once this player has revealed the
+// comparison view for this race (see RevealGate/revealPrediction) — the
+// prediction is locked from that point on regardless of the race's actual
+// lock time, so an editable-looking form here would just save-fail silently
+// against the rules. Full driver names, not codes: the compact codes are
+// specifically a PredictionsGrid thing for fitting many players' rows at
+// once, not a general "picks" convention.
+function LockedPickSummary({ race, existingPrediction, drivers }) {
+  const driversById = new Map(drivers.map((d) => [d.id, d]))
+  const nameOf = (id) => (id ? driversById.get(id)?.name ?? 'Unknown driver' : '—')
+  const picks = shapeFromPrediction(existingPrediction)
+
+  return (
+    <div className="flex flex-col gap-4 rounded-2xl border border-track-700 bg-track-900 p-5">
+      <div>
+        <h3 className="font-display text-base font-bold text-slate-100">Your pick — locked in</h3>
+        <p className="text-xs text-slate-500">
+          You revealed everyone's picks for this race, so yours is locked from that point on, ahead of the actual
+          race lock.
+        </p>
+      </div>
+      {race.sprint && (
+        <div className="flex flex-col gap-1 text-sm text-slate-300">
+          <span className="text-xs font-semibold uppercase tracking-wide text-race-gold">Sprint</span>
+          <span>P1: {nameOf(picks.sprintP1)} · P2: {nameOf(picks.sprintP2)} · P3: {nameOf(picks.sprintP3)}</span>
+        </div>
+      )}
+      <div className="flex flex-col gap-1 text-sm text-slate-300">
+        {race.sprint && <span className="text-xs font-semibold uppercase tracking-wide text-slate-400">Grand Prix</span>}
+        <span>P1: {nameOf(picks.p1)} · P2: {nameOf(picks.p2)} · P3: {nameOf(picks.p3)}</span>
+      </div>
+      {(picks.pole || picks.fastestLap) && (
+        <div className="flex flex-col gap-1 border-t border-track-700 pt-3 text-sm text-slate-300">
+          <span>Pole: {nameOf(picks.pole)} · Fastest lap: {nameOf(picks.fastestLap)}</span>
+        </div>
+      )}
+    </div>
+  )
+}
+
+export default function PredictionForm({ race, player, drivers, existingPrediction, scoringSettings, revealed }) {
   const [picks, setPicks] = useState(EMPTY_PICKS)
   const [saving, setSaving] = useState(false)
   const [savedAt, setSavedAt] = useState(null)
@@ -28,6 +68,12 @@ export default function PredictionForm({ race, player, drivers, existingPredicti
   useEffect(() => {
     if (existingPrediction) setPicks(shapeFromPrediction(existingPrediction))
   }, [existingPrediction?.id])
+
+  // All hooks above still run every render regardless of `revealed` — only
+  // what gets returned branches, so this doesn't break rules-of-hooks.
+  if (revealed) {
+    return <LockedPickSummary race={race} existingPrediction={existingPrediction} drivers={drivers} />
+  }
 
   const mainPodiumIds = [picks.p1, picks.p2, picks.p3].filter(Boolean)
   const sprintPodiumIds = [picks.sprintP1, picks.sprintP2, picks.sprintP3].filter(Boolean)

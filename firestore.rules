@@ -24,6 +24,27 @@ service cloud.firestore {
       return signedIn() && playerId == activePlayerId();
     }
 
+    // "Submitted" here deliberately means just the main P1/P2/P3 — the same
+    // bar PredictionsGrid's reveal-gate button uses client-side to decide
+    // whether to offer the comparison view at all, so the two stay in sync.
+    // Doesn't require exists() to short-circuit first because every
+    // prediction the app ever writes always has these three keys present
+    // (even as explicit nulls) from the moment the doc is created — see
+    // upsertPrediction — so a straight get().data.p1 read is safe as long
+    // as the doc exists, which is what exists() guards here. Safe to call
+    // even when this happens to be evaluating access to the reader's own
+    // doc (get() on the same path currently being evaluated) — confirmed
+    // against both the emulator and production; the actual failure mode
+    // that looked like a self-reference problem was really just the
+    // resource == null case handled in the read rule below.
+    function hasSubmittedMainPodium(raceId) {
+      let ownPredId = raceId + '_' + activePlayerId();
+      return exists(/databases/$(database)/documents/predictions/$(ownPredId)) &&
+        get(/databases/$(database)/documents/predictions/$(ownPredId)).data.p1 != null &&
+        get(/databases/$(database)/documents/predictions/$(ownPredId)).data.p2 != null &&
+        get(/databases/$(database)/documents/predictions/$(ownPredId)).data.p3 != null;
+    }
+
     function isAdmin() {
       return signedIn() &&
         get(/databases/$(database)/documents/players/$(activePlayerId())).data.isAdmin == true;
@@ -128,11 +149,28 @@ service cloud.firestore {
     // player's pick works on any race, locked or not, and even creates the
     // doc fresh if that player never predicted at all.
     match /predictions/{predictionId} {
-      allow read: if signedIn() && (
+      // A player can also see the *whole race's* picks early, before lock,
+      // once they've submitted their own main podium — see
+      // hasSubmittedMainPodium() above. That's the read-access half of the
+      // reveal feature; the write half (locking their own pick the moment
+      // they do this) is the revealedAt check in `update` below.
+      //
+      // `resource == null ||` first: a real-time listener subscribed to a
+      // prediction that doesn't exist yet (useMyPrediction, before a player
+      // has ever submitted for this race — a normal, expected case) has no
+      // `resource` to evaluate the rest of this against. Firestore doesn't
+      // just skip evaluating the other clauses in that case, it throws —
+      // and a thrown/denied error permanently kills that onSnapshot
+      // listener (Firestore never auto-retries one), so without this guard
+      // a player's very first-ever submission would silently never show up
+      // in their own form until they reloaded the page. Confirmed this
+      // isn't emulator-only — same failure against production Firestore.
+      allow read: if signedIn() && (resource == null || (
         resource.data.authUid == request.auth.uid ||
         isRaceLocked(resource.data.raceId) ||
-        isAdmin()
-      );
+        isAdmin() ||
+        hasSubmittedMainPodium(resource.data.raceId)
+      ));
 
       allow create: if signedIn() && (
         (request.resource.data.authUid == request.auth.uid &&
@@ -141,19 +179,31 @@ service cloud.firestore {
         isAdmin()
       );
 
-      // Before lock: only the author can edit their own pick.
+      // Before lock: only the author can edit their own pick, and only if
+      // they haven't revealed the comparison view for this race yet —
+      // revealedAt (set the moment they open it, see revealPrediction in
+      // api.js) locks it in early on purpose, same as an actual race lock
+      // would, so peeking at everyone else's picks can't be used to then
+      // change your own. .get() with a default here (not resource.data.
+      // revealedAt directly) because older prediction docs written before
+      // this feature existed don't have the key at all, and plain dot
+      // access throws on a genuinely missing key rather than returning null.
       // After lock: any signed-in session may write (this is how the admin
       // results screen posts computed points back onto each prediction).
       // isAdmin() covers overriding a pick that's still open (not yet
       // locked) for someone other than the acting admin themselves.
       allow update: if signedIn() && (
-        (resource.data.authUid == request.auth.uid && !isRaceLocked(resource.data.raceId)) ||
+        (resource.data.authUid == request.auth.uid &&
+          !isRaceLocked(resource.data.raceId) &&
+          resource.data.get('revealedAt', null) == null) ||
         isRaceLocked(resource.data.raceId) ||
         isAdmin()
       );
 
       allow delete: if signedIn() && (
-        (resource.data.authUid == request.auth.uid && !isRaceLocked(resource.data.raceId)) ||
+        (resource.data.authUid == request.auth.uid &&
+          !isRaceLocked(resource.data.raceId) &&
+          resource.data.get('revealedAt', null) == null) ||
         isAdmin()
       );
     }

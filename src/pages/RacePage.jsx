@@ -9,12 +9,15 @@ import {
   useScoringSettings,
 } from '../hooks/useAppData'
 import { useDocument } from '../hooks/useFirestore'
+import { useLiveNow } from '../hooks/useLiveNow'
 import { usePlayerContext } from '../context/PlayerContext'
-import { getRaceStatus, formatDateRange } from '../lib/raceStatus'
+import { getRaceStatus, formatDateRange, toDate } from '../lib/raceStatus'
 import StatusPill from '../components/race/StatusPill'
 import PredictionForm from '../components/race/PredictionForm'
 import SubmissionStatus from '../components/race/SubmissionStatus'
 import PredictionsGrid from '../components/race/PredictionsGrid'
+import RevealGate from '../components/race/RevealGate'
+import LockCountdown from '../components/race/LockCountdown'
 import RacePodiumMini from '../components/scoreboard/RacePodiumMini'
 import EmptyState from '../components/ui/EmptyState'
 import LoadingScreen from '../components/ui/LoadingScreen'
@@ -27,10 +30,26 @@ export default function RacePage() {
   const { activePlayer } = usePlayerContext()
   const { data: scoringSettings } = useScoringSettings()
 
-  const status = race ? getRaceStatus(race) : null
+  const now = useLiveNow(race ? toDate(race.lockAt) : null)
+  const status = race ? getRaceStatus(race, now) : null
   const { data: myPrediction } = useMyPrediction(raceId, activePlayer?.id)
   const { data: submissions } = useRaceSubmissions(raceId)
-  const { data: allPredictions } = usePredictionsForRace(raceId, status !== 'open')
+
+  // "Submitted" here is deliberately just the main P1/P2/P3 (see
+  // hasSubmittedMainPodium in firestore.rules, which this mirrors) — that's
+  // the bar for unlocking the reveal option, independent of sprint/bonus
+  // picks. Revealing (RevealGate → revealPrediction) locks this player's own
+  // pick early, well before the race's actual lockAt — see the revealedAt
+  // check in PredictionForm and the security rules' update clause.
+  const hasSubmittedMain = Boolean(myPrediction?.p1 && myPrediction?.p2 && myPrediction?.p3)
+  const hasRevealed = Boolean(myPrediction?.revealedAt)
+  // revealLockResetAt sticks around permanently once an admin resets a
+  // reveal-lock (see resetRevealLock) as a record of it having happened —
+  // only relevant to *show* the player while they haven't re-revealed since
+  // (once they do, hasRevealed covers that, so this stops being news).
+  const wasResetByAdmin = Boolean(myPrediction?.revealLockResetAt) && !hasRevealed
+  const canViewComparison = status === 'locked' || status === 'completed' || hasRevealed
+  const { data: allPredictions } = usePredictionsForRace(raceId, canViewComparison)
 
   const driversById = useMemo(() => new Map(drivers.map((d) => [d.id, d])), [drivers])
 
@@ -68,30 +87,47 @@ export default function RacePage() {
       )}
 
       {status === 'open' && (
-        <div className="grid grid-cols-1 gap-5 lg:grid-cols-[2fr_1fr]">
-          {activePlayer ? (
-            <PredictionForm
-              race={race}
-              player={activePlayer}
-              drivers={drivers}
-              existingPrediction={myPrediction}
-              scoringSettings={scoringSettings}
-            />
-          ) : (
-            <EmptyState
-              icon="👋"
-              title="Pick who you are first"
-              subtitle="Tap the profile button in the top bar to join the grid, then come back to predict this race."
-            />
+        <>
+          <LockCountdown lockAt={race.lockAt} now={now} />
+          {activePlayer && wasResetByAdmin && (
+            <p className="rounded-lg border border-race-gold/30 bg-race-gold/10 px-3 py-2 text-xs text-race-gold">
+              An admin reset your early lock on this pick — you can edit it again below. Viewing everyone's picks
+              will lock it in again, same as before.
+            </p>
           )}
-          <SubmissionStatus players={players} submissions={submissions} />
-        </div>
+          <div className="grid grid-cols-1 gap-5 lg:grid-cols-[2fr_1fr]">
+            {activePlayer ? (
+              <PredictionForm
+                race={race}
+                player={activePlayer}
+                drivers={drivers}
+                existingPrediction={myPrediction}
+                scoringSettings={scoringSettings}
+                revealed={hasRevealed}
+              />
+            ) : (
+              <EmptyState
+                icon="👋"
+                title="Pick who you are first"
+                subtitle="Tap the profile button in the top bar to join the grid, then come back to predict this race."
+              />
+            )}
+            <SubmissionStatus players={players} submissions={submissions} />
+          </div>
+          {activePlayer && hasSubmittedMain && !hasRevealed && (
+            <RevealGate raceId={raceId} playerId={activePlayer.id} />
+          )}
+        </>
       )}
 
-      {(status === 'locked' || status === 'completed') && (
+      {(status === 'locked' || status === 'completed' || (status === 'open' && hasRevealed)) && (
         <section>
           <h2 className="mb-3 font-display text-lg font-bold text-slate-100">
-            {status === 'locked' ? "Everyone's picks (locked in)" : "Everyone's picks vs. the result"}
+            {status === 'completed'
+              ? "Everyone's picks vs. the result"
+              : status === 'locked'
+                ? "Everyone's picks (locked in)"
+                : "Everyone's picks (before the race)"}
           </h2>
           {allPredictions.length === 0 ? (
             <EmptyState icon="🦗" title="Nobody predicted this one" subtitle="Radio silence from the whole grid." />
