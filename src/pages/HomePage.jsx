@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useRaces, usePlayers, useAllSubmissions } from '../hooks/useAppData'
 import { usePlayerContext } from '../context/PlayerContext'
-import { nextUpcomingRace, formatDateRange, toDate } from '../lib/raceStatus'
+import { nextUpcomingRace, formatDateRange, toDate, getRaceStatus } from '../lib/raceStatus'
 import { useLiveNow } from '../hooks/useLiveNow'
 import RaceCard from '../components/race/RaceCard'
 import LockCountdown from '../components/race/LockCountdown'
@@ -37,6 +37,16 @@ export default function HomePage() {
     }
     return map
   }, [submissions])
+
+  // Race Hub's main list is deliberately just what's ahead — completed
+  // races pile up as the season goes (results in, nothing left to act on
+  // here), and the full breakdown for any of them is already one click away
+  // via Scoreboard's race-by-race section, so this is purely a display
+  // filter, not a data change; nothing about a completed race's
+  // predictions/scores/results is touched. A locked-but-not-yet-scored race
+  // (just happened, admin hasn't entered results yet) still shows here —
+  // it's still current, just not editable anymore.
+  const upcomingRaces = useMemo(() => races.filter((r) => getRaceStatus(r) !== 'completed'), [races])
 
   if (loading) return <LoadingScreen message="Loading the calendar…" />
 
@@ -82,21 +92,34 @@ export default function HomePage() {
       )}
 
       <section>
-        <h2 className="mb-3 font-display text-lg font-bold text-slate-100">2026 Calendar</h2>
-        <div className="flex flex-col gap-2.5">
-          {races.map((race) => {
-            const submitted = submittedByRace.get(race.id) ?? new Set()
-            return (
-              <RaceCard
-                key={race.id}
-                race={race}
-                totalPlayers={players.length}
-                submittedCount={submitted.size}
-                hasSubmitted={activePlayerId ? submitted.has(activePlayerId) : false}
-              />
-            )
-          })}
+        <div className="mb-3 flex items-center justify-between gap-3">
+          <h2 className="font-display text-lg font-bold text-slate-100">Upcoming races</h2>
+          <Link to="/scoreboard" className="text-xs font-semibold text-slate-500 hover:text-slate-300">
+            Past races & results →
+          </Link>
         </div>
+        {upcomingRaces.length === 0 ? (
+          <EmptyState
+            icon="🏆"
+            title="That's the season!"
+            subtitle="Every race has been run — check Scoreboard for the final standings and every race's breakdown."
+          />
+        ) : (
+          <div className="flex flex-col gap-2.5">
+            {upcomingRaces.map((race) => {
+              const submitted = submittedByRace.get(race.id) ?? new Set()
+              return (
+                <RaceCard
+                  key={race.id}
+                  race={race}
+                  totalPlayers={players.length}
+                  submittedCount={submitted.size}
+                  hasSubmitted={activePlayerId ? submitted.has(activePlayerId) : false}
+                />
+              )
+            })}
+          </div>
+        )}
       </section>
     </div>
   )
