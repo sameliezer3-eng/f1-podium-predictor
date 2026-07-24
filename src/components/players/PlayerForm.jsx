@@ -12,17 +12,28 @@ export default function PlayerForm({ onCreated }) {
   const [color, setColor] = useState(COLORS[0])
   const [emoji, setEmoji] = useState('')
   const [saving, setSaving] = useState(false)
+  const [error, setError] = useState(null)
 
   const handleSubmit = async (e) => {
     e.preventDefault()
     if (!name.trim()) return
     setSaving(true)
+    setError(null)
     try {
       const trimmedName = name.trim()
       const id = await addPlayer({ name: trimmedName, color, emoji })
       setName('')
       setEmoji('')
       onCreated?.(id, { name: trimmedName, color, emoji })
+    } catch (err) {
+      console.error('Adding player failed:', err.code, err.message, err)
+      if (err.code === 'timeout') {
+        setError("Couldn't reach the server — check your connection and try again.")
+      } else if (err.code === 'permission-denied') {
+        setError("Couldn't save — a permissions issue on our end, not yours.")
+      } else {
+        setError("Couldn't add you to the grid — try again.")
+      }
     } finally {
       setSaving(false)
     }
@@ -94,6 +105,7 @@ export default function PlayerForm({ onCreated }) {
           {saving ? 'Adding…' : 'Add to the grid'}
         </button>
       </div>
+      {error && <p className="text-sm font-medium text-race-red">{error}</p>}
     </form>
   )
 }

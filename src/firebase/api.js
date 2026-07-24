@@ -25,19 +25,22 @@ const slugify = (str) =>
 
 export async function addPlayer({ name, color, emoji }) {
   const id = `${slugify(name)}-${Math.random().toString(36).slice(2, 6)}`
-  await setDoc(doc(db, 'players', id), {
-    name,
-    color,
-    emoji: emoji || null,
-    createdAt: serverTimestamp(),
-    // Both required explicitly, not left to default to "missing": the create
-    // rule requires isAdmin === false (nobody grants themselves admin), and
-    // passcodeHash must exist as null for the "claiming an unset passcode"
-    // rule check to see it rather than erroring on a missing field.
-    isAdmin: false,
-    passcodeHash: null,
-    passcodeSetAt: null,
-  })
+  await withTimeout(
+    setDoc(doc(db, 'players', id), {
+      name,
+      color,
+      emoji: emoji || null,
+      createdAt: serverTimestamp(),
+      // Both required explicitly, not left to default to "missing": the create
+      // rule requires isAdmin === false (nobody grants themselves admin), and
+      // passcodeHash must exist as null for the "claiming an unset passcode"
+      // rule check to see it rather than erroring on a missing field.
+      isAdmin: false,
+      passcodeHash: null,
+      passcodeSetAt: null,
+    }),
+    10000,
+  )
   return id
 }
 
@@ -45,11 +48,35 @@ export async function updatePlayer(playerId, data) {
   await updateDoc(doc(db, 'players', playerId), data)
 }
 
+// A misconfigured deploy (e.g. a prod build accidentally pointed at a local
+// emulator host) doesn't reject this write — it just never resolves, since
+// the SDK keeps the request pending against an unreachable target instead
+// of failing fast. Without a bound, PasscodeSetup's "Saving…" state would
+// spin forever with nothing for the user to act on. Race against a plain
+// timer so the caller always gets a settled promise either way; tagged
+// `.code = 'timeout'` so the UI can show something more specific than a
+// generic failure.
+function withTimeout(promise, ms) {
+  return Promise.race([
+    promise,
+    new Promise((_, reject) =>
+      setTimeout(() => {
+        const err = new Error('Timed out waiting for Firestore to respond.')
+        err.code = 'timeout'
+        reject(err)
+      }, ms),
+    ),
+  ])
+}
+
 export async function setPlayerPasscode(playerId, passcodeHash) {
-  await updateDoc(doc(db, 'players', playerId), {
-    passcodeHash,
-    passcodeSetAt: serverTimestamp(),
-  })
+  await withTimeout(
+    updateDoc(doc(db, 'players', playerId), {
+      passcodeHash,
+      passcodeSetAt: serverTimestamp(),
+    }),
+    10000,
+  )
 }
 
 // Admin action: clears a player's passcode so their next login goes through

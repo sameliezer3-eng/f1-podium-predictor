@@ -9,9 +9,11 @@ export default function PasscodeSetup({ player, onSuccess, onBack }) {
   const [resetKey, setResetKey] = useState(0)
   const [mismatch, setMismatch] = useState(false)
   const [saving, setSaving] = useState(false)
+  const [error, setError] = useState(null)
 
   const handleComplete = async (code) => {
     setMismatch(false)
+    setError(null)
 
     if (stage === 'enter') {
       setFirstCode(code)
@@ -34,6 +36,16 @@ export default function PasscodeSetup({ player, onSuccess, onBack }) {
       const hash = await hashPasscode(player.id, code)
       await setPlayerPasscode(player.id, hash)
       onSuccess()
+    } catch (err) {
+      console.error('Passcode save failed:', err.code, err.message, err)
+      if (err.code === 'timeout') {
+        setError("Couldn't reach the server — check your connection and try again.")
+      } else if (err.code === 'permission-denied') {
+        setError("Couldn't save — a permissions issue on our end, not yours.")
+      } else {
+        setError("Couldn't save your passcode — try again.")
+      }
+      setResetKey((k) => k + 1)
     } finally {
       setSaving(false)
     }
@@ -56,6 +68,7 @@ export default function PasscodeSetup({ player, onSuccess, onBack }) {
       <PasscodeInput onComplete={handleComplete} disabled={saving} resetKey={resetKey} shake={mismatch} />
 
       {mismatch && <p className="text-sm font-medium text-race-red">Didn't match, try again.</p>}
+      {error && <p className="text-sm font-medium text-race-red">{error}</p>}
       {saving && <p className="text-sm text-slate-500">Saving…</p>}
 
       <button onClick={onBack} className="text-sm text-slate-500 hover:text-slate-300">

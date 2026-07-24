@@ -23,20 +23,33 @@ export default function NavBar() {
     <>
       <header className="sticky top-0 z-40 border-b border-track-700 bg-track-950/90 backdrop-blur">
         <div className="mx-auto flex max-w-5xl items-end justify-between gap-3 px-4 py-2.5">
-          <NavLink to="/" className="flex shrink-0 items-end overflow-visible text-slate-50">
+          <NavLink to="/" className="flex shrink-0 items-end text-slate-50">
             {/* The SVG's viewBox carries a lot of built-in padding around the
                 letterforms (room for the drop-shadow extrusion), so the
-                visible "Fam1" glyphs only fill roughly a third of the
-                rendered box height — sized well past the player-button's
-                own height to compensate, not because the box itself should
-                be that tall. items-end bottom-aligns the SVG's *box*, but
-                that empty padding sits below the glyphs within the box, so
-                box-alignment alone still leaves the visible letterforms
-                floating above the nav text's baseline. translate-y (a
-                percentage, so it scales with h-24 vs sm:h-28 automatically)
-                shifts the rendered pixels down within that box to close the
-                gap, without disturbing the flex alignment itself. */}
-            <Fam1Logo className="h-24 w-auto translate-y-[45%] sm:h-28" />
+                rendered box (h-24/h-28) is roughly 3x taller than the
+                visible "Fam1" glyphs — translate-y shifts those glyphs down
+                within the box to sit flush with its bottom edge (see below),
+                but the box itself is still that full height as far as the
+                row's flex layout is concerned. Left unclipped, that mostly-
+                empty box was the actual cause of the header looking
+                top-heavy: `items-end` was already bottom-aligning everything
+                correctly, but the nav text and avatar are only ~30px tall
+                against the logo's 112px box, so they read as sitting in the
+                bottom third of a much taller row with a big gap above them —
+                even though the row's own padding-top/bottom (py-2.5) were
+                already equal. The wrapper below clips the box down to just
+                the visible glyph height (~40px), so the logo's *layout*
+                height roughly matches its neighbors' instead of dragging the
+                whole row taller than it needs to be. */}
+            <div className="flex h-[35px] items-end overflow-hidden sm:h-[40px]">
+              {/* translate-y (a percentage, so it scales with h-24 vs sm:h-28
+                  automatically) shifts the rendered pixels down within the
+                  SVG's own box so the visible glyphs land in the bottom
+                  slice the wrapper above keeps — the rest of the box (the
+                  drop-shadow padding) falls outside the wrapper and is
+                  clipped away rather than pushing the row taller. */}
+              <Fam1Logo className="h-24 w-auto translate-y-[45%] sm:h-28" />
+            </div>
           </NavLink>
 
           <nav className="hidden items-end gap-1 sm:flex">
