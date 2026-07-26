@@ -13,7 +13,7 @@ import {
   writeBatch,
 } from 'firebase/firestore'
 import { db, auth, authReady, AuthUnavailableError } from './config'
-import { scorePrediction } from '../lib/scoring'
+import { scoreRaceResult, scorePoleBonus, scoreFastestLapBonus } from '../lib/scoring'
 
 const slugify = (str) =>
   str
@@ -281,67 +281,165 @@ export async function setRaceLockAt(raceId, dateStringUTC) {
   })
 }
 
-// Reshapes a prediction/results pair from their sprint-prefixed field names
-// down to the plain {p1,p2,p3} shape scorePrediction already knows how to
-// score — same function, same rules, just fed the sprint slice of the data
-// instead of the main-race slice. No pole/fastest-lap for sprint (the brief
-// scopes sprint prediction to top-3 only), so bonusPicksEnabled naturally
-// has nothing to match against here.
-function toSprintShape(prediction, results) {
+// Recomputes the derived `points`/`breakdown`/`correctPodiumCount`/
+// `guessCount` fields from a prediction's three independent main-race-family
+// sections — race podium, pole bonus, fastest-lap bonus (sprint stays
+// entirely separate; see sprintPoints/sprintBreakdown in submitSprintResults
+// below). Called after any *one* of the three is (re)scored, reading
+// whatever the *other* two currently hold on the prediction doc, so the
+// total is always a fresh sum — never an increment — meaning a correction to
+// one section can never double-count or stack on top of a stale total.
+function deriveMainTotals(prediction) {
   return {
-    prediction: { p1: prediction.sprintPredictedP1, p2: prediction.sprintPredictedP2, p3: prediction.sprintPredictedP3 },
-    results: { p1: results.sprintP1, p2: results.sprintP2, p3: results.sprintP3 },
+    points: (prediction.racePoints || 0) + (prediction.poleBonusPoints || 0) + (prediction.fastestLapBonusPoints || 0),
+    breakdown: [
+      ...(prediction.raceBreakdown || []),
+      ...(prediction.poleBreakdown || []),
+      ...(prediction.fastestLapBreakdown || []),
+    ],
+    correctPodiumCount: prediction.raceCorrectPodiumCount || 0,
+    guessCount: prediction.raceGuessCount || 0,
   }
 }
 
 /**
- * Admin action: write the actual results for a race — P1/P2/P3 (+ optional
- * pole/fastest lap), and on a sprint weekend the sprint's own P1/P2/P3 too —
- * then score every submitted prediction for that race in one batch.
- *
- * `results` is the *full* merged object (main + sprint fields together, as
- * ResultsEntry's form always sends it, prefilled from whatever was already
- * saved), not a partial patch. That's what lets an admin save just the
- * sprint result on Saturday and the main result on Sunday without either
- * save clobbering the other: only the halves that are actually complete get
- * (re)scored, and a half left incomplete just doesn't touch that half's
- * existing points/breakdown/scoredAt fields on each prediction.
+ * Admin action: save the pole position result for a race and immediately
+ * recalculate every player's pole bonus — independent of the sprint result,
+ * the race result, and fastest lap, since pole is usually known right after
+ * qualifying, often a day or more before any of the others. Uses a
+ * dot-notation field path (`results.pole`, not `results`) so this only ever
+ * touches the pole slice of the race's results map, never clobbering
+ * whatever else has (or hasn't) been entered yet. Re-saving a corrected pole
+ * pick replaces this section's contribution cleanly — see deriveMainTotals.
  */
-export async function submitRaceResults(raceId, results, scoringSettings) {
+export async function submitPoleResult(raceId, poleDriverId, scoringSettings) {
   const predictionsSnap = await getDocs(query(collection(db, 'predictions'), where('raceId', '==', raceId)))
-
   const batch = writeBatch(db)
 
   batch.update(doc(db, 'races', raceId), {
-    results,
-    resultsEnteredAt: serverTimestamp(),
+    'results.pole': poleDriverId,
+    'results.poleEnteredAt': serverTimestamp(),
   })
-
-  const mainComplete = Boolean(results.p1 && results.p2 && results.p3)
-  const sprintComplete = Boolean(results.sprintP1 && results.sprintP2 && results.sprintP3)
 
   for (const predDoc of predictionsSnap.docs) {
     const prediction = predDoc.data()
-    const update = {}
+    const { points: poleBonusPoints, breakdown: poleBreakdown } = scorePoleBonus(prediction, { pole: poleDriverId }, scoringSettings)
+    batch.update(predDoc.ref, {
+      poleBonusPoints,
+      poleBreakdown,
+      poleScoredAt: serverTimestamp(),
+      ...deriveMainTotals({ ...prediction, poleBonusPoints, poleBreakdown }),
+    })
+  }
 
-    if (mainComplete) {
-      const { points, breakdown, correctPodiumCount, guessCount } = scorePrediction(prediction, results, scoringSettings)
-      Object.assign(update, { points, breakdown, correctPodiumCount, guessCount, scoredAt: serverTimestamp() })
+  await batch.commit()
+  return predictionsSnap.size
+}
+
+/**
+ * Admin action: save the fastest-lap result and recalculate every player's
+ * fastest-lap bonus — independent of everything else, same reasoning as
+ * submitPoleResult above (usually known only once the race itself is over,
+ * sometimes revised shortly after if the timing gets corrected).
+ */
+export async function submitFastestLapResult(raceId, fastestLapDriverId, scoringSettings) {
+  const predictionsSnap = await getDocs(query(collection(db, 'predictions'), where('raceId', '==', raceId)))
+  const batch = writeBatch(db)
+
+  batch.update(doc(db, 'races', raceId), {
+    'results.fastestLap': fastestLapDriverId,
+    'results.fastestLapEnteredAt': serverTimestamp(),
+  })
+
+  for (const predDoc of predictionsSnap.docs) {
+    const prediction = predDoc.data()
+    const { points: fastestLapBonusPoints, breakdown: fastestLapBreakdown } = scoreFastestLapBonus(
+      prediction,
+      { fastestLap: fastestLapDriverId },
+      scoringSettings,
+    )
+    batch.update(predDoc.ref, {
+      fastestLapBonusPoints,
+      fastestLapBreakdown,
+      fastestLapScoredAt: serverTimestamp(),
+      ...deriveMainTotals({ ...prediction, fastestLapBonusPoints, fastestLapBreakdown }),
+    })
+  }
+
+  await batch.commit()
+  return predictionsSnap.size
+}
+
+/**
+ * Admin action: save the Grand Prix's own P1/P2/P3 and recalculate every
+ * player's race points (exact position + correct-podium-wrong-slot + winner
+ * bonus) — independent of pole, fastest lap, and the sprint. This is what
+ * flips a race to "completed" status (see isMainRaceComplete in
+ * lib/raceStatus.js) — the other three sections can be entered well before
+ * or after this one without affecting that.
+ */
+export async function submitRaceResult(raceId, results, scoringSettings) {
+  const predictionsSnap = await getDocs(query(collection(db, 'predictions'), where('raceId', '==', raceId)))
+  const batch = writeBatch(db)
+
+  batch.update(doc(db, 'races', raceId), {
+    'results.p1': results.p1,
+    'results.p2': results.p2,
+    'results.p3': results.p3,
+    'results.raceEnteredAt': serverTimestamp(),
+  })
+
+  for (const predDoc of predictionsSnap.docs) {
+    const prediction = predDoc.data()
+    const { points: racePoints, breakdown: raceBreakdown, correctPodiumCount: raceCorrectPodiumCount, guessCount: raceGuessCount } =
+      scoreRaceResult(prediction, results, scoringSettings)
+    batch.update(predDoc.ref, {
+      racePoints,
+      raceBreakdown,
+      raceCorrectPodiumCount,
+      raceGuessCount,
+      raceScoredAt: serverTimestamp(),
+      ...deriveMainTotals({ ...prediction, racePoints, raceBreakdown, raceCorrectPodiumCount, raceGuessCount }),
+    })
+  }
+
+  await batch.commit()
+  return predictionsSnap.size
+}
+
+/**
+ * Admin action: save the sprint's own P1/P2/P3 and recalculate every
+ * player's sprint points — entirely separate from the main race family
+ * above (its own `sprintPoints`/`sprintBreakdown` fields, never folded into
+ * `points`, matching how the rest of the app already treats sprint vs. main
+ * scoring as two parallel totals rather than one combined number).
+ */
+export async function submitSprintResults(raceId, sprintResults, scoringSettings) {
+  const predictionsSnap = await getDocs(query(collection(db, 'predictions'), where('raceId', '==', raceId)))
+  const batch = writeBatch(db)
+
+  batch.update(doc(db, 'races', raceId), {
+    'results.sprintP1': sprintResults.p1,
+    'results.sprintP2': sprintResults.p2,
+    'results.sprintP3': sprintResults.p3,
+    'results.sprintEnteredAt': serverTimestamp(),
+  })
+
+  for (const predDoc of predictionsSnap.docs) {
+    const prediction = predDoc.data()
+    const sprintPrediction = {
+      p1: prediction.sprintPredictedP1,
+      p2: prediction.sprintPredictedP2,
+      p3: prediction.sprintPredictedP3,
     }
-
-    if (sprintComplete) {
-      const { prediction: sprintPrediction, results: sprintResults } = toSprintShape(prediction, results)
-      const raw = scorePrediction(sprintPrediction, sprintResults, scoringSettings)
-      Object.assign(update, {
-        sprintPoints: raw.points * (scoringSettings.sprintPointsMultiplier ?? 0.5),
-        sprintBreakdown: raw.breakdown,
-        sprintCorrectPodiumCount: raw.correctPodiumCount,
-        sprintGuessCount: raw.guessCount,
-        sprintScoredAt: serverTimestamp(),
-      })
-    }
-
-    if (Object.keys(update).length > 0) batch.update(predDoc.ref, update)
+    const raw = scoreRaceResult(sprintPrediction, sprintResults, scoringSettings)
+    batch.update(predDoc.ref, {
+      sprintPoints: raw.points * (scoringSettings.sprintPointsMultiplier ?? 0.5),
+      sprintBreakdown: raw.breakdown,
+      sprintCorrectPodiumCount: raw.correctPodiumCount,
+      sprintGuessCount: raw.guessCount,
+      sprintScoredAt: serverTimestamp(),
+    })
   }
 
   await batch.commit()
@@ -409,13 +507,37 @@ export async function adminOverridePrediction({
   // *this* write fails, the override itself still took effect, just without
   // updated points. Tagged with `.phase` so the caller (PredictionOverride)
   // can say so specifically instead of a blanket "failed to save" that would
-  // wrongly imply the pick change itself didn't go through. Main and sprint
-  // rescore independently (either can fail without blocking the other) since
-  // whichever one throws first still needs to say which one it was.
+  // wrongly imply the pick change itself didn't go through. Race/pole/
+  // fastest-lap fold into one combined write (they share the same derived
+  // points/breakdown total — see deriveMainTotals — so there's nothing to
+  // gain from splitting them the way sprint is split below); sprint rescores
+  // in its own write since it's genuinely independent, and either one
+  // failing shouldn't block the other from landing.
+  const existingData = existing.exists() ? existing.data() : {}
+  const mainUpdate = {}
+
   if (raceResults?.p1 && raceResults?.p2 && raceResults?.p3) {
+    const { points, breakdown, correctPodiumCount, guessCount } = scoreRaceResult(picks, raceResults, scoringSettings)
+    Object.assign(mainUpdate, {
+      racePoints: points,
+      raceBreakdown: breakdown,
+      raceCorrectPodiumCount: correctPodiumCount,
+      raceGuessCount: guessCount,
+      raceScoredAt: serverTimestamp(),
+    })
+  }
+  if (raceResults?.pole) {
+    const { points, breakdown } = scorePoleBonus(picks, raceResults, scoringSettings)
+    Object.assign(mainUpdate, { poleBonusPoints: points, poleBreakdown: breakdown, poleScoredAt: serverTimestamp() })
+  }
+  if (raceResults?.fastestLap) {
+    const { points, breakdown } = scoreFastestLapBonus(picks, raceResults, scoringSettings)
+    Object.assign(mainUpdate, { fastestLapBonusPoints: points, fastestLapBreakdown: breakdown, fastestLapScoredAt: serverTimestamp() })
+  }
+  if (Object.keys(mainUpdate).length > 0) {
     try {
-      const { points, breakdown, correctPodiumCount, guessCount } = scorePrediction(picks, raceResults, scoringSettings)
-      await updateDoc(ref, { points, breakdown, correctPodiumCount, guessCount, scoredAt: serverTimestamp() })
+      Object.assign(mainUpdate, deriveMainTotals({ ...existingData, ...mainUpdate }))
+      await updateDoc(ref, mainUpdate)
     } catch (err) {
       err.phase = 'rescore'
       throw err
@@ -424,8 +546,9 @@ export async function adminOverridePrediction({
 
   if (raceResults?.sprintP1 && raceResults?.sprintP2 && raceResults?.sprintP3) {
     try {
-      const { prediction: sprintPrediction, results: sprintResults } = toSprintShape(picks, raceResults)
-      const raw = scorePrediction(sprintPrediction, sprintResults, scoringSettings)
+      const sprintPrediction = { p1: picks.sprintPredictedP1, p2: picks.sprintPredictedP2, p3: picks.sprintPredictedP3 }
+      const sprintResultShape = { p1: raceResults.sprintP1, p2: raceResults.sprintP2, p3: raceResults.sprintP3 }
+      const raw = scoreRaceResult(sprintPrediction, sprintResultShape, scoringSettings)
       await updateDoc(ref, {
         sprintPoints: raw.points * (scoringSettings.sprintPointsMultiplier ?? 0.5),
         sprintBreakdown: raw.breakdown,
@@ -440,6 +563,10 @@ export async function adminOverridePrediction({
   }
 }
 
+// Nuclear option — clears every section at once (race, pole, sprint,
+// fastest lap), unlike the four submit* functions above which each only
+// ever touch their own slice. Still whole-object here (not dot-notation)
+// since wiping everything is exactly the point.
 export async function clearRaceResults(raceId) {
   const predictionsSnap = await getDocs(query(collection(db, 'predictions'), where('raceId', '==', raceId)))
   const batch = writeBatch(db)
@@ -451,6 +578,17 @@ export async function clearRaceResults(raceId) {
       correctPodiumCount: null,
       guessCount: null,
       scoredAt: null,
+      racePoints: null,
+      raceBreakdown: null,
+      raceCorrectPodiumCount: null,
+      raceGuessCount: null,
+      raceScoredAt: null,
+      poleBonusPoints: null,
+      poleBreakdown: null,
+      poleScoredAt: null,
+      fastestLapBonusPoints: null,
+      fastestLapBreakdown: null,
+      fastestLapScoredAt: null,
       sprintPoints: null,
       sprintBreakdown: null,
       sprintCorrectPodiumCount: null,

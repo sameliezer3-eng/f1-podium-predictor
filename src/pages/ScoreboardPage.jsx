@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react'
 import { useDrivers, usePlayers, useRaces, useSeasonPredictions } from '../hooks/useAppData'
 import { aggregatePlayerStats } from '../lib/scoring'
+import { isMainRaceComplete } from '../lib/raceStatus'
 import Podium from '../components/scoreboard/Podium'
 import StandingsTable from '../components/scoreboard/StandingsTable'
 import TrendChart from '../components/scoreboard/TrendChart'
@@ -15,8 +16,15 @@ export default function ScoreboardPage() {
   const { data: drivers } = useDrivers()
   const { data: seasonPredictions } = useSeasonPredictions(races)
 
+  // Specifically races whose main podium is in, not just "has *a* results
+  // field" — pole/sprint/fastest-lap can be scored well before the race
+  // itself, and this list drives the podium-mini + full breakdown below,
+  // which need an actual race result to show. Season *totals* (via
+  // useSeasonPredictions, a separate broader filter) still reflect
+  // pole/sprint points the moment they're scored, even for a race that
+  // hasn't happened yet — only this per-race browsing list is stricter.
   const completedRaces = useMemo(
-    () => races.filter((r) => r.results).sort((a, b) => a.order - b.order),
+    () => races.filter(isMainRaceComplete).sort((a, b) => a.order - b.order),
     [races],
   )
   const driversById = useMemo(() => new Map(drivers.map((d) => [d.id, d])), [drivers])

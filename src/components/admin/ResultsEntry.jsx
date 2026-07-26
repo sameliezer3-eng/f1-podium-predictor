@@ -1,65 +1,135 @@
 import { useEffect, useState } from 'react'
 import DriverSelect from '../ui/DriverSelect'
 import Modal from '../ui/Modal'
-import { clearRaceResults, submitRaceResults } from '../../firebase/api'
+import {
+  clearRaceResults,
+  submitPoleResult,
+  submitFastestLapResult,
+  submitRaceResult,
+  submitSprintResults,
+} from '../../firebase/api'
 import { getRaceStatus } from '../../lib/raceStatus'
 
-const EMPTY_FORM = { p1: null, p2: null, p3: null, pole: null, fastestLap: null, sprintP1: null, sprintP2: null, sprintP3: null }
+// A single-driver bonus pick (pole, fastest lap) — its own value, its own
+// dirty check, its own save action. Saving one of these never requires or
+// touches the other sections; see the submit* functions in firebase/api.js.
+function SingleDriverSection({ title, drivers, savedValue, onSave }) {
+  const [value, setValue] = useState(savedValue)
+  const [saving, setSaving] = useState(false)
+  const [status, setStatus] = useState(null)
+
+  useEffect(() => {
+    setValue(savedValue)
+    setStatus(null)
+  }, [savedValue])
+
+  const dirty = value !== savedValue
+
+  const handleSave = async () => {
+    setSaving(true)
+    setStatus(null)
+    try {
+      await onSave(value)
+      setStatus('Saved.')
+    } catch (err) {
+      console.error(`${title} save failed:`, err.code, err.message, err)
+      setStatus(err.code === 'permission-denied' ? "Couldn't save — permissions issue." : "Couldn't save — try again.")
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <div className="flex flex-col gap-3 rounded-xl border border-track-700 bg-track-950 p-4">
+      <span className="text-xs font-semibold uppercase tracking-wide text-slate-400">{title}</span>
+      <DriverSelect drivers={drivers} value={value} onChange={setValue} />
+      <div className="flex flex-wrap items-center gap-3">
+        <button
+          onClick={handleSave}
+          disabled={!dirty || saving}
+          className="rounded-lg bg-race-red px-4 py-2 text-xs font-bold uppercase tracking-wide text-white transition hover:bg-red-600 disabled:opacity-40"
+        >
+          {saving ? 'Saving…' : savedValue ? 'Update' : 'Save'}
+        </button>
+        {status && <span className="text-xs text-slate-400">{status}</span>}
+      </div>
+    </div>
+  )
+}
+
+// A P1/P2/P3 podium result (sprint, race) — same independence as above, just
+// three slots that all need filling before this section's save enables.
+function PodiumResultSection({ title, drivers, savedValues, onSave }) {
+  const [values, setValues] = useState(savedValues)
+  const [saving, setSaving] = useState(false)
+  const [status, setStatus] = useState(null)
+
+  useEffect(() => {
+    setValues(savedValues)
+    setStatus(null)
+  }, [savedValues.p1, savedValues.p2, savedValues.p3]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  const podiumIds = [values.p1, values.p2, values.p3].filter(Boolean)
+  const complete = Boolean(values.p1 && values.p2 && values.p3)
+  const dirty = values.p1 !== savedValues.p1 || values.p2 !== savedValues.p2 || values.p3 !== savedValues.p3
+
+  const handleSave = async () => {
+    setSaving(true)
+    setStatus(null)
+    try {
+      await onSave(values)
+      setStatus('Saved.')
+    } catch (err) {
+      console.error(`${title} save failed:`, err.code, err.message, err)
+      setStatus(err.code === 'permission-denied' ? "Couldn't save — permissions issue." : "Couldn't save — try again.")
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <div className="flex flex-col gap-3 rounded-xl border border-track-700 bg-track-950 p-4">
+      <span className="text-xs font-semibold uppercase tracking-wide text-slate-400">{title}</span>
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+        {['p1', 'p2', 'p3'].map((slot, i) => (
+          <DriverSelect
+            key={slot}
+            drivers={drivers}
+            label={`P${i + 1}`}
+            value={values[slot]}
+            excludeIds={podiumIds.filter((id) => id !== values[slot])}
+            onChange={(v) => setValues((s) => ({ ...s, [slot]: v }))}
+          />
+        ))}
+      </div>
+      <div className="flex flex-wrap items-center gap-3">
+        <button
+          onClick={handleSave}
+          disabled={!complete || !dirty || saving}
+          className="rounded-lg bg-race-red px-4 py-2 text-xs font-bold uppercase tracking-wide text-white transition hover:bg-red-600 disabled:opacity-40"
+        >
+          {saving ? 'Saving…' : savedValues.p1 ? 'Update' : 'Save'}
+        </button>
+        {status && <span className="text-xs text-slate-400">{status}</span>}
+      </div>
+    </div>
+  )
+}
 
 export default function ResultsEntry({ races, drivers, scoringSettings }) {
   const eligible = races.filter((r) => getRaceStatus(r) !== 'open')
   const [raceId, setRaceId] = useState('')
-  const [form, setForm] = useState(EMPTY_FORM)
-  const [status, setStatus] = useState('idle')
   const [confirmingClear, setConfirmingClear] = useState(false)
   const [clearing, setClearing] = useState(false)
   const [clearError, setClearError] = useState(null)
 
   const race = races.find((r) => r.id === raceId)
 
-  useEffect(() => {
-    setForm({
-      p1: race?.results?.p1 || null,
-      p2: race?.results?.p2 || null,
-      p3: race?.results?.p3 || null,
-      pole: race?.results?.pole || null,
-      fastestLap: race?.results?.fastestLap || null,
-      sprintP1: race?.results?.sprintP1 || null,
-      sprintP2: race?.results?.sprintP2 || null,
-      sprintP3: race?.results?.sprintP3 || null,
-    })
-  }, [raceId]) // eslint-disable-line react-hooks/exhaustive-deps
-
-  const podiumIds = [form.p1, form.p2, form.p3].filter(Boolean)
-  const sprintPodiumIds = [form.sprintP1, form.sprintP2, form.sprintP3].filter(Boolean)
-  const mainComplete = Boolean(form.p1 && form.p2 && form.p3)
-  const sprintComplete = Boolean(form.sprintP1 && form.sprintP2 && form.sprintP3)
-  // Sprint happens Saturday, the Grand Prix Sunday — an admin filling this in
-  // right after the sprint won't have main results yet. Either half being
-  // complete is enough to save (see submitRaceResults: whichever half isn't
-  // complete just doesn't get (re)scored, the other's untouched).
-  const complete = mainComplete || (race?.sprint && sprintComplete)
-
-  const handleSubmit = async (e) => {
-    e.preventDefault()
-    if (!raceId || !complete) return
-    setStatus('saving')
-    try {
-      const count = await submitRaceResults(raceId, form, scoringSettings)
-      setStatus(`Scored ${count} prediction${count === 1 ? '' : 's'}.`)
-    } catch (err) {
-      console.error('Results save failed:', err.code, err.message, err)
-      setStatus(err.code === 'permission-denied' ? "Couldn't save — a permissions issue on our end, not yours." : 'Failed to save — see console.')
-    }
-  }
-
   const handleClear = async () => {
     setClearing(true)
     setClearError(null)
     try {
       await clearRaceResults(raceId)
-      setForm(EMPTY_FORM)
-      setStatus('Cleared.')
       setConfirmingClear(false)
     } catch (err) {
       console.error('Clear results failed:', err.code, err.message, err)
@@ -69,22 +139,34 @@ export default function ResultsEntry({ races, drivers, scoringSettings }) {
     }
   }
 
+  const enteredSummary = (r) => {
+    if (!r.results) return ''
+    const parts = []
+    if (r.sprint && r.results.sprintP1 && r.results.sprintP2 && r.results.sprintP3) parts.push('sprint')
+    if (r.results.p1 && r.results.p2 && r.results.p3) parts.push('race')
+    if (r.results.pole) parts.push('pole')
+    if (r.results.fastestLap) parts.push('f.lap')
+    return parts.length ? ` (${parts.join(', ')} in)` : ''
+  }
+
   return (
     <div className="flex flex-col gap-4">
+      <p className="text-xs text-slate-500">
+        Pole, sprint, race, and fastest lap each save (and score) on their own — enter whichever one you know first,
+        the rest can follow later as the weekend unfolds.
+      </p>
+
       <label className="flex flex-col gap-1.5">
         <span className="text-xs font-semibold uppercase tracking-wide text-slate-400">Race</span>
         <select
           value={raceId}
-          onChange={(e) => {
-            setRaceId(e.target.value)
-            setStatus('idle')
-          }}
+          onChange={(e) => setRaceId(e.target.value)}
           className="rounded-lg border border-track-600 bg-track-800 px-3 py-2.5 text-sm text-slate-100 outline-none focus:border-race-red"
         >
           <option value="">Select a locked or completed race…</option>
           {eligible.map((r) => (
             <option key={r.id} value={r.id}>
-              Round {r.order} · {r.name} {r.results ? '(results entered)' : ''}
+              Round {r.order} · {r.name}{enteredSummary(r)}
             </option>
           ))}
         </select>
@@ -94,67 +176,51 @@ export default function ResultsEntry({ races, drivers, scoringSettings }) {
       </label>
 
       {race && (
-        <form onSubmit={handleSubmit} className="flex flex-col gap-4 rounded-xl border border-track-700 bg-track-950 p-4">
-          {race.sprint && (
-            <div className="flex flex-col gap-3 rounded-lg border border-track-700 bg-track-900 p-3">
-              <span className="text-xs font-semibold uppercase tracking-wide text-race-gold">Sprint result</span>
-              <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-                {['sprintP1', 'sprintP2', 'sprintP3'].map((slot, i) => (
-                  <DriverSelect
-                    key={slot}
-                    drivers={drivers}
-                    label={`Sprint P${i + 1}`}
-                    value={form[slot]}
-                    excludeIds={sprintPodiumIds.filter((id) => id !== form[slot])}
-                    onChange={(v) => setForm((f) => ({ ...f, [slot]: v }))}
-                  />
-                ))}
-              </div>
-            </div>
+        <div className="flex flex-col gap-4">
+          {scoringSettings.bonusPicksEnabled && (
+            <SingleDriverSection
+              title="Pole position"
+              drivers={drivers}
+              savedValue={race.results?.pole || null}
+              onSave={(pole) => submitPoleResult(race.id, pole, scoringSettings)}
+            />
           )}
 
-          <div className="flex flex-col gap-3">
-            {race.sprint && <span className="text-xs font-semibold uppercase tracking-wide text-slate-400">Grand Prix result</span>}
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-              {['p1', 'p2', 'p3'].map((slot, i) => (
-                <DriverSelect
-                  key={slot}
-                  drivers={drivers}
-                  label={`P${i + 1}`}
-                  value={form[slot]}
-                  excludeIds={podiumIds.filter((id) => id !== form[slot])}
-                  onChange={(v) => setForm((f) => ({ ...f, [slot]: v }))}
-                />
-              ))}
-            </div>
-          </div>
+          {race.sprint && (
+            <PodiumResultSection
+              title="Sprint result"
+              drivers={drivers}
+              savedValues={{
+                p1: race.results?.sprintP1 || null,
+                p2: race.results?.sprintP2 || null,
+                p3: race.results?.sprintP3 || null,
+              }}
+              onSave={(values) => submitSprintResults(race.id, values, scoringSettings)}
+            />
+          )}
+
+          <PodiumResultSection
+            title="Grand Prix result"
+            drivers={drivers}
+            savedValues={{
+              p1: race.results?.p1 || null,
+              p2: race.results?.p2 || null,
+              p3: race.results?.p3 || null,
+            }}
+            onSave={(values) => submitRaceResult(race.id, values, scoringSettings)}
+          />
 
           {scoringSettings.bonusPicksEnabled && (
-            <div className="grid grid-cols-1 gap-3 border-t border-track-700 pt-4 sm:grid-cols-2">
-              <DriverSelect
-                drivers={drivers}
-                label="Pole position"
-                value={form.pole}
-                onChange={(v) => setForm((f) => ({ ...f, pole: v }))}
-              />
-              <DriverSelect
-                drivers={drivers}
-                label="Fastest lap"
-                value={form.fastestLap}
-                onChange={(v) => setForm((f) => ({ ...f, fastestLap: v }))}
-              />
-            </div>
+            <SingleDriverSection
+              title="Fastest lap"
+              drivers={drivers}
+              savedValue={race.results?.fastestLap || null}
+              onSave={(fastestLap) => submitFastestLapResult(race.id, fastestLap, scoringSettings)}
+            />
           )}
 
-          <div className="flex flex-wrap items-center gap-3">
-            <button
-              type="submit"
-              disabled={!complete || status === 'saving'}
-              className="rounded-lg bg-race-red px-5 py-2.5 text-sm font-bold uppercase tracking-wide text-white transition hover:bg-red-600 disabled:opacity-40"
-            >
-              {race.results ? 'Update & rescore' : 'Save results & score'}
-            </button>
-            {race.results && (
+          {race.results && (
+            <div>
               <button
                 type="button"
                 onClick={() => {
@@ -163,22 +229,20 @@ export default function ResultsEntry({ races, drivers, scoringSettings }) {
                 }}
                 className="rounded-lg border border-track-600 px-4 py-2.5 text-sm font-semibold text-slate-300 transition hover:border-race-red hover:text-race-red"
               >
-                Clear results
+                Clear all results
               </button>
-            )}
-            {status !== 'idle' && status !== 'saving' && <span className="text-sm text-slate-400">{status}</span>}
-          </div>
-        </form>
+            </div>
+          )}
+        </div>
       )}
 
       {confirmingClear && (
-        <Modal title="Clear results" onClose={() => !clearing && setConfirmingClear(false)}>
+        <Modal title="Clear all results" onClose={() => !clearing && setConfirmingClear(false)}>
           <div className="flex flex-col gap-4">
             <p className="text-sm text-slate-300">
-              Clear the results for <strong>{race?.name}</strong> and un-score every prediction for this race
-              {race?.sprint ? ' — sprint and Grand Prix both' : ''}? Players keep their picks — only the actual
-              result{race?.sprint ? 's' : ''} and everyone's points are removed. You can re-enter results later to
-              re-score.
+              Clear every result for <strong>{race?.name}</strong> — pole, sprint, race, and fastest lap all at once —
+              and un-score every prediction for this race? Players keep their picks — only the results and everyone's
+              points are removed. You can re-enter results later to re-score.
             </p>
             {clearError && (
               <p className="rounded-lg border border-race-red/30 bg-race-red/10 px-3 py-2 text-sm text-race-red">
@@ -191,7 +255,7 @@ export default function ResultsEntry({ races, drivers, scoringSettings }) {
                 disabled={clearing}
                 className="rounded-lg bg-race-red px-4 py-2.5 text-sm font-bold uppercase tracking-wide text-white transition hover:bg-red-600 disabled:opacity-40"
               >
-                {clearing ? 'Clearing…' : 'Clear results'}
+                {clearing ? 'Clearing…' : 'Clear all results'}
               </button>
               <button
                 onClick={() => setConfirmingClear(false)}

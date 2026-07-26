@@ -18,13 +18,26 @@ export function isRaceLocked(race, now = new Date()) {
   return lockAt ? now >= lockAt : false
 }
 
+// Specifically the *main race* podium — not "does `results` have anything in
+// it at all". Since pole/sprint/fastest-lap can each be entered and scored
+// independently, often before the race itself has even run (pole is known
+// after qualifying, a day or more ahead), `race.results` becomes a
+// truthy-but-partial object well before the race is actually decided. Status
+// (and anything gating on "is this race done") needs the stricter check —
+// see getRaceStatus below and its callers (Race Hub's upcoming-races filter,
+// RacePodiumMini, Scoreboard's race-by-race list) — or a race would flip to
+// "completed" the moment an admin saves just the pole result.
+export function isMainRaceComplete(race) {
+  return Boolean(race.results?.p1 && race.results?.p2 && race.results?.p3)
+}
+
 /**
  * 'open'      — predictions can still be submitted/edited
  * 'locked'    — weekend has started, results not in yet
- * 'completed' — results have been entered and scored
+ * 'completed' — the race result has been entered and scored
  */
 export function getRaceStatus(race, now = new Date()) {
-  if (race.results) return 'completed'
+  if (isMainRaceComplete(race)) return 'completed'
   if (isRaceLocked(race, now)) return 'locked'
   return 'open'
 }
